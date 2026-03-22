@@ -49,6 +49,7 @@ def connect():
         database=database,
         charset="utf8mb4",
         collation="utf8mb4_unicode_ci",
+        autocommit=False,
     )
 
 
@@ -116,8 +117,8 @@ def main() -> int:
         conn.close()
 
     print(
-        f"Fertig ({today}): {neue_gesetze} neue Gesetze, "
-        f"{neue_aenderungen} neue Änderungen in die DB geschrieben."
+        f"Fertig: {neue_gesetze} neue Gesetze, {neue_aenderungen} neue Änderungen "
+        f"gespeichert ({today})."
     )
     return 0
 

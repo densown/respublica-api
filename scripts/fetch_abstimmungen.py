@@ -188,14 +188,6 @@ def main() -> int:
         print(f"Abstimmungen konnten nicht geladen werden: {e}", file=sys.stderr)
         return 1
 
-    print(f"[debug] Polls von der API: {len(polls)}")
-    print(
-        "[debug] DB-Verbindung: "
-        f"host={os.environ.get('DB_HOST', 'localhost')!r}, "
-        f"database={os.environ.get('DB_NAME', 'respublica_gesetze')!r}, "
-        f"user={os.environ.get('DB_USER')!r}"
-    )
-
     conn = connect()
     neue_abstimmungen_polls: set[int] = set()
     neue_votes_summe = 0
@@ -205,10 +197,6 @@ def main() -> int:
         for poll in polls:
             pid = poll_id_as_int(poll.get("id"))
             if pid is None:
-                print(
-                    f"[debug] Poll übersprungen (keine gültige id): id={poll.get('id')!r}",
-                    file=sys.stderr,
-                )
                 continue
             titel = poll.get("label") or ""
             if not isinstance(titel, str):
@@ -216,7 +204,6 @@ def main() -> int:
             poll_datum = parse_poll_datum(poll)
 
             votes = fetch_all_votes(pid)
-            print(f"[debug] Poll {pid}: {len(votes)} Votes")
             by_fr = aggregate_by_fraction(votes)
 
             for partei, z in by_fr.items():
@@ -236,12 +223,6 @@ def main() -> int:
                     titel,
                     poll_datum,
                 )
-                print(
-                    "[debug] INSERT-Zeile: "
-                    f"aenderung_id=NULL, partei={partei!r}, "
-                    f"ja={ja}, nein={nein}, enthalten={enthalten}, abwesend={abwesend}, "
-                    f"poll_id={pid}, poll_titel={titel[:80]!r}…, poll_datum={poll_datum!r}"
-                )
                 inserted = False
                 try:
                     cur.execute(
@@ -254,54 +235,24 @@ def main() -> int:
                         row,
                     )
                 except mysql.connector.IntegrityError as err:
-                    # Duplikat (poll_id, partei) — zweiter Lauf
-                    if getattr(err, "errno", None) == 1062:
-                        print(
-                            f"[debug] INSERT übersprungen (Duplikat): poll_id={pid} "
-                            f"partei={partei!r}",
-                            file=sys.stderr,
-                        )
-                    else:
-                        print(
-                            f"[debug] INSERT-Fehler IntegrityError (poll_id={pid}, "
-                            f"partei={partei!r}): {err} (errno={getattr(err, 'errno', None)})",
-                            file=sys.stderr,
-                        )
+                    if getattr(err, "errno", None) != 1062:
                         raise
-                except mysql.connector.Error as err:
-                    print(
-                        f"[debug] INSERT-Fehler (poll_id={pid}, partei={partei!r}): "
-                        f"{err} (errno={getattr(err, 'errno', None)})",
-                        file=sys.stderr,
-                    )
-                    raise
                 else:
                     inserted = True
-                w = cur.fetchwarnings()
-                if w:
-                    print(f"[debug] INSERT-Warnungen: {w}", file=sys.stderr)
-                rc = cur.rowcount
-                lid = cur.lastrowid
-                print(
-                    f"[debug] INSERT rowcount={rc}, lastrowid={lid} "
-                    f"(Duplikat-Handling: errno 1062 → Zeile existierte schon)"
-                )
+                _ = cur.warnings
                 if inserted:
                     neue_abstimmungen_polls.add(pid)
                     neue_votes_summe += ja + nein + enthalten + abwesend
 
-            # Nach allen Fraktionen dieses Polls fest schreiben (sichtbar für andere Sessions)
             conn.commit()
-            print(f"[debug] conn.commit() nach Poll {pid} ({len(by_fr)} Zeilen)")
 
-        # Sicherheit: falls die Schleife leer war, nichts offen lassen
         conn.commit()
     finally:
         conn.close()
 
     print(
         f"Fertig: {len(neue_abstimmungen_polls)} Abstimmungen mit neuen Zeilen, "
-        f"{neue_votes_summe} Stimmen (ja/nein/enthalten/abwesend) neu gespeichert."
+        f"{neue_votes_summe} Stimmen neu gespeichert."
     )
     return 0
 
