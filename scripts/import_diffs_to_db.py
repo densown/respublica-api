@@ -20,14 +20,9 @@ ROOT = Path(__file__).resolve().parent.parent
 DIFFS_DIR = ROOT / "data" / "diffs"
 
 
-def law_slug_and_folder(rel_path: str) -> tuple[str, str]:
-    """z. B. m/milog/index.md -> ('milog', 'm/milog')."""
-    parts = Path(rel_path).parts
-    if len(parts) >= 2:
-        return parts[1], f"{parts[0]}/{parts[1]}"
-    if parts:
-        return parts[0], parts[0]
-    return rel_path, rel_path
+def kuerzel_und_pfad(rel_path: str) -> tuple[str, str]:
+    """kmein/gesetze: kuerzel = Dateiname ohne Endung, pfad = voller relativer Pfad."""
+    return Path(rel_path).stem, rel_path
 
 
 def load_env() -> None:
@@ -82,7 +77,7 @@ def main() -> int:
             if not isinstance(rel_path, str) or not isinstance(diff_text, str):
                 continue
 
-            kuerzel, pfad = law_slug_and_folder(rel_path)
+            kuerzel, pfad = kuerzel_und_pfad(rel_path)
 
             cur.execute(
                 "INSERT IGNORE INTO gesetze (kuerzel, pfad) VALUES (%s, %s)",

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Klont/aktualisiert bundestag/gesetze, sammelt Dateien mit Commits in den letzten 24 Stunden,
+Klont/aktualisiert kmein/gesetze, sammelt Dateien mit Commits in den letzten 24 Stunden,
 schreibt die zugehörigen git diffs als JSON und gibt eine Kurzstatistik aus.
 """
 
@@ -13,8 +13,8 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-REPO_URL = "https://github.com/bundestag/gesetze.git"
-REPO_PATH = Path("/root/apps/gesetze/data/bundestag-gesetze")
+REPO_URL = "https://github.com/kmein/gesetze.git"
+REPO_PATH = Path("/root/apps/gesetze/data/kmein-gesetze")
 DIFFS_DIR = Path("/root/apps/gesetze/data/diffs")
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
@@ -95,12 +95,13 @@ def git_diff_for_file(base: str, rel_path: str) -> str:
 
 def law_key(rel_path: str) -> str:
     """
-    Ein Gesetz entspricht in diesem Repo typischerweise dem Ordner unter dem Buchstabenpräfix,
-    z. B. b/badv/... -> b/badv. Root-Dateien zählen als eigener Schlüssel.
+    Gesetze liegen unter laws/ (z. B. laws/MiLoG.md -> Schlüssel MiLoG, Dateiname ohne Endung).
+    Andere Pfade fallen auf den vollen relativen Pfad zurück.
     """
-    parts = rel_path.split("/")
-    if len(parts) >= 2:
-        return f"{parts[0]}/{parts[1]}"
+    p = Path(rel_path)
+    parts = p.parts
+    if len(parts) >= 2 and parts[0] == "laws":
+        return p.stem
     return rel_path
 
 
@@ -134,7 +135,7 @@ def main() -> int:
     laws = {law_key(p) for p in files}
     print(f"JSON gespeichert: {out_file}")
     print(f"Geänderte Dateien (24h): {len(files)}")
-    print(f"Geänderte Gesetze (geschätzt nach Pfad …/…): {len(laws)}")
+    print(f"Geänderte Gesetze (nach laws/<Name>): {len(laws)}")
     if laws and len(files) <= 30:
         for k in sorted(laws):
             print(f"  - {k}")

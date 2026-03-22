@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-22T00:22:56.024491+00:00",
-  "repo": "https://github.com/bundestag/gesetze.git",
-  "repo_path": "/root/apps/gesetze/data/bundestag-gesetze",
-  "diff_base": "77abca2ceea3b7b89ea70afb13b5dd55415eb124",
+  "generated_at": "2026-03-22T01:32:12.024329+00:00",
+  "repo": "https://github.com/kmein/gesetze.git",
+  "repo_path": "/root/apps/gesetze/data/kmein-gesetze",
+  "diff_base": "b6b3e899e42455403d692278683950784a26525b",
   "window": "24 hours (git log --since)",
   "file_count": 0,
   "files": []
