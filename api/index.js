@@ -48,7 +48,8 @@ app.get("/api/gesetze", async (req, res) => {
          a.datum,
          a.zusammenfassung,
          a.kontext,
-         a.bgbl_referenz
+         a.bgbl_referenz,
+         a.poll_id
        FROM aenderungen a
        INNER JOIN gesetze g ON g.id = a.gesetz_id
        ORDER BY a.datum DESC, a.id DESC`
@@ -61,6 +62,7 @@ app.get("/api/gesetze", async (req, res) => {
       zusammenfassung: r.zusammenfassung,
       kontext: r.kontext,
       bgbl_referenz: r.bgbl_referenz,
+      poll_id: r.poll_id,
     }));
     res.json(out);
   } catch (err) {
@@ -106,6 +108,7 @@ app.get("/api/gesetze/:id", async (req, res) => {
       zusammenfassung: r.zusammenfassung,
       kontext: r.kontext,
       bgbl_referenz: r.bgbl_referenz,
+      poll_id: r.poll_id,
       diff: r.diff,
     });
   } catch (err) {
