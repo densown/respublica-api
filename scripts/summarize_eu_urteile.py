@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""
+KI-Zusammenfassungen (DE + EN) für eu_urteile via Groq.
+"""
+import argparse
+import json
+import os
+import sys
+import time
+import requests
+import mysql.connector
+from dotenv import load_dotenv
+
+load_dotenv('/root/apps/gesetze/.env')
+
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+MODEL = 'llama-3.1-8b-instant'
+
+LOG_DIR = '/root/apps/gesetze/logs'
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, 'summarize_eu_urteile.log')
+
+
+def log(msg):
+    line = f'{time.strftime("%Y-%m-%d %H:%M:%S")} {msg}'
+    print(line)
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(line + '\n')
+
+
+def get_db():
+    return mysql.connector.connect(
+        host=os.getenv('DB_HOST'),
+        user=os.getenv('DB_USER'),
+        password=os.getenv('DB_PASSWORD'),
+        database=os.getenv('DB_NAME'),
+    )
+
+
+def groq_chat(prompt):
+    # Groq on_demand ~30 RPM; 4 Aufrufe pro Urteil → min. ~2 s zwischen Requests
+    pause = float(os.getenv('GROQ_CALL_PAUSE_SEC', '2.1'))
+    for attempt in range(6):
+        time.sleep(pause)
+        r = requests.post(
+            GROQ_URL,
+            headers={
+                'Authorization': f'Bearer {GROQ_API_KEY}',
+                'Content-Type': 'application/json',
+            },
+            json={
+                'model': MODEL,
+                'max_tokens': 500,
+                'messages': [{'role': 'user', 'content': prompt}],
+            },
+            timeout=60,
+        )
+        data = r.json()
+        if 'choices' in data:
+            msg = data['choices'][0].get('message') or {}
+            content = msg.get('content')
+            return (content or '').strip()
+        err = data.get('error')
+        if isinstance(err, dict):
+            err_s = json.dumps(err, ensure_ascii=False)[:400]
+            if err.get('code') == 'rate_limit_exceeded':
+                log(f'  Groq rate limit, Versuch {attempt + 1}: {err_s[:200]}')
+                time.sleep(3 + attempt * 2)
+                continue
+        elif err is not None:
+            err_s = str(err)[:400]
+        else:
+            err_s = json.dumps(data, ensure_ascii=False)[:400]
+        log(f'  Groq error: {err_s}')
+        return None
+    return None
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--limit', type=int, default=None, help='Max. Anzahl Urteile')
+    args = ap.parse_args()
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        '''
+        SELECT id, gericht, datum, betreff, leitsatz
+        FROM eu_urteile
+        WHERE zusammenfassung_de IS NULL
+        ORDER BY datum DESC, id DESC
+        '''
+    )
+    rows = cur.fetchall()
+    if args.limit is not None:
+        rows = rows[: args.limit]
+    log(f'{len(rows)} Urteile zu verarbeiten')
+
+    for i, (uid, gericht, datum, betreff, leitsatz) in enumerate(rows):
+        log(f'  [{i + 1}/{len(rows)}] id={uid}')
+        try:
+            g = gericht or '—'
+            d = str(datum) if datum else '—'
+            b = (betreff or '').strip() or '—'
+            l = (leitsatz or '').strip() or '—'
+
+            z_de = groq_chat(
+                f'Fasse dieses EU-Gerichtsurteil in 2-3 Sätzen auf Deutsch zusammen. '
+                f'Erkläre was entschieden wurde und welche Auswirkung das auf Bürger oder Unternehmen hat.\n'
+                f'Gericht: {g}\nDatum: {d}\nBetreff: {b}\nLeitsatz: {l}'
+            )
+            z_en = groq_chat(
+                f'Summarize this EU court ruling in 2-3 sentences in English.\n'
+                f'Explain what was decided and what impact it has on citizens or businesses.\n'
+                f'Court: {g}\nDate: {d}\nSubject: {b}\nHeadnote: {l}'
+            )
+            a_de = groq_chat(
+                'Erkläre in 1-2 Sätzen auf Deutsch die praktische Auswirkung dieses EU-Urteils auf den Alltag.'
+            )
+            a_en = groq_chat(
+                'Explain in 1-2 sentences in English the practical impact of this EU ruling on everyday life.'
+            )
+
+            if not all([z_de, z_en, a_de, a_en]):
+                log(f'  überspringe id={uid} (unvollständige Groq-Antwort)')
+                continue
+
+            cur.execute(
+                '''
+                UPDATE eu_urteile
+                SET zusammenfassung_de=%s, zusammenfassung_en=%s,
+                    auswirkung_de=%s, auswirkung_en=%s
+                WHERE id=%s
+                ''',
+                (z_de, z_en, a_de, a_en, uid),
+            )
+            db.commit()
+        except Exception as e:
+            log(f'  Fehler id={uid}: {e}')
+
+    cur.close()
+    db.close()
+    log('Fertig.')
+
+
+if __name__ == '__main__':
+    if not GROQ_API_KEY:
+        print('GROQ_API_KEY fehlt', file=sys.stderr)
+        sys.exit(1)
+    main()
