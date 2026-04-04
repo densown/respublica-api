@@ -1121,6 +1121,28 @@ app.get("/api/wahlen/region/:ags", async (req, res) => {
   }
 });
 
+
+/** World helper: parse DB decimal to number */
+function worldNum(v) {
+  if (v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+const WORLD_CATEGORY_LABELS = {
+  economy: { label_de: "Wirtschaft", label_en: "Economy" },
+  population: { label_de: "Bevölkerung", label_en: "Population" },
+  education: { label_de: "Bildung", label_en: "Education" },
+  health: { label_de: "Gesundheit", label_en: "Health" },
+  environment: { label_de: "Umwelt", label_en: "Environment" },
+  governance: { label_de: "Governance", label_en: "Governance" },
+  military: { label_de: "Militär", label_en: "Military" },
+  inequality: { label_de: "Ungleichheit", label_en: "Inequality" },
+  technology: { label_de: "Technologie", label_en: "Technology" },
+  trade: { label_de: "Handel", label_en: "Trade" },
+  security: { label_de: "Sicherheit", label_en: "Security" },
+};
+
 app.get("/api/world/categories", async (_req, res) => {
   try {
     const [rows] = await getPool().query(
