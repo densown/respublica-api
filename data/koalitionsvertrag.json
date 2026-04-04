@@ -1,0 +1,142 @@
+[
+    {
+        "id": 1,
+        "versprechen": "Wirtschaftswachstum durch Investitionsoffensive in Infrastruktur und Digitalisierung beschleunigen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 2,
+        "versprechen": "Energiepreise fuer Industrie und Mittelstand durch gezielte Entlastungen stabilisieren",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 3,
+        "versprechen": "Planungs- und Genehmigungsverfahren fuer Bau und Infrastruktur deutlich verkuerzen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 4,
+        "versprechen": "Bezahlbaren Wohnraum durch Wohnungsbauprogramm und vereinfachte Standards ausbauen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 5,
+        "versprechen": "Zuwanderung in den Arbeitsmarkt modernisieren und Fachkraefteeinwanderung erleichtern",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 6,
+        "versprechen": "Asylverfahren beschleunigen und Rueckfuehrungen bei fehlender Bleibeperspektive verbessern",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 7,
+        "versprechen": "Innere Sicherheit mit mehr Personal bei Polizei und Justiz sowie besserer IT staerken",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 8,
+        "versprechen": "Bundeswehr einsatzbereit machen und Verteidigungsfaehigkeit strukturell erhoehen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 9,
+        "versprechen": "Entlastungen fuer niedrige und mittlere Einkommen bei Steuern und Abgaben umsetzen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 10,
+        "versprechen": "Rentenstabilitaet sichern und private sowie betriebliche Vorsorge gezielt staerken",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 11,
+        "versprechen": "Pflegeversorgung verbessern und Arbeitsbedingungen in Pflegeberufen attraktiver machen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 12,
+        "versprechen": "Krankenhausreform und sektoruebergreifende Gesundheitsversorgung zuegig voranbringen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 13,
+        "versprechen": "Bildungschancen verbessern mit Digitalpakt 2.0 und staerkerer Sprachfoerderung",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 14,
+        "versprechen": "Buerokratieabbau durch digitale Verwaltung und One-Stop-Services beschleunigen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 15,
+        "versprechen": "Klimaschutz mit marktwirtschaftlichen Instrumenten und Technologieoffenheit umsetzen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 16,
+        "versprechen": "Schieneninfrastruktur modernisieren und Deutschlandtakt schneller realisieren",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 17,
+        "versprechen": "Laendliche Raeume durch Mobilitaet, Medizin und digitale Netze staerken",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 18,
+        "versprechen": "Forschung, KI und Innovation mit Fokus auf Souveraenitaet und Wettbewerbsfaehigkeit foerdern",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 19,
+        "versprechen": "Europa- und Aussenpolitik an Sicherheitsinteressen und Handlungsfaehigkeit der EU ausrichten",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    },
+    {
+        "id": 20,
+        "versprechen": "Familienpolitik mit besseren Betreuungsangeboten und zielgenauer Kinderfoerderung ausbauen",
+        "status": "ausstehend",
+        "gesetz_kuerzel": null,
+        "notiz": ""
+    }
+]

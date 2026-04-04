@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-03-22T06:00:02.571920+00:00",
+  "generated_at": "2026-04-04T06:00:02.527203+00:00",
   "repo": "https://github.com/kmein/gesetze.git",
   "repo_path": "/root/apps/gesetze/data/kmein-gesetze",
-  "diff_base": "b6b3e899e42455403d692278683950784a26525b",
+  "diff_base": "26fa65928d4d735fe2262a0e3257fc171f172efe",
   "window": "24 hours (git log --since)",
   "file_count": 0,
   "files": []

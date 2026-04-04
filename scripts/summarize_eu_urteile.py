@@ -17,6 +17,34 @@ GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
 MODEL = 'llama-3.1-8b-instant'
 
+PROMPT_SUMMARY_DE = """Du bist ein juristischer Experte. Fasse das folgende EU-Gerichtsurteil in exakt 2-3 Sätzen auf Deutsch zusammen. Verwende NUR die unten angegebenen Informationen. Sage NIEMALS 'Ich konnte nichts finden' oder 'Ich habe keine Informationen' oder 'Leider'. Wenn der Betreff auf Französisch ist, übersetze ihn ins Deutsche.
+
+Gericht: {gericht}
+Datum: {datum}
+Betreff: {betreff}
+
+Zusammenfassung:"""
+
+PROMPT_SUMMARY_EN = """You are a legal expert. Summarize the following EU court ruling in exactly 2-3 sentences in English. Use ONLY the information provided below. NEVER say 'I could not find' or 'I have no information' or 'Unfortunately'. If the subject is in French or German, translate it to English.
+
+Court: {gericht}
+Date: {datum}
+Subject: {betreff}
+
+Summary:"""
+
+PROMPT_IMPACT_DE = """Erkläre in exakt 1-2 Sätzen auf Deutsch die praktische Auswirkung dieses EU-Urteils. Verwende NUR die folgenden Informationen. Sage NIEMALS dass du keine Informationen hast.
+
+Gericht: {gericht}, Datum: {datum}, Betreff: {betreff}
+
+Praktische Auswirkung:"""
+
+PROMPT_IMPACT_EN = """Explain in exactly 1-2 sentences in English the practical impact of this EU ruling. Use ONLY the information below. NEVER say you have no information.
+
+Court: {gericht}, Date: {datum}, Subject: {betreff}
+
+Practical impact:"""
+
 LOG_DIR = '/root/apps/gesetze/logs'
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, 'summarize_eu_urteile.log')
@@ -97,30 +125,17 @@ def main():
         rows = rows[: args.limit]
     log(f'{len(rows)} Urteile zu verarbeiten')
 
-    for i, (uid, gericht, datum, betreff, leitsatz) in enumerate(rows):
+    for i, (uid, gericht, datum, betreff, _) in enumerate(rows):
         log(f'  [{i + 1}/{len(rows)}] id={uid}')
         try:
             g = gericht or '—'
             d = str(datum) if datum else '—'
             b = (betreff or '').strip() or '—'
-            l = (leitsatz or '').strip() or '—'
 
-            z_de = groq_chat(
-                f'Fasse dieses EU-Gerichtsurteil in 2-3 Sätzen auf Deutsch zusammen. '
-                f'Erkläre was entschieden wurde und welche Auswirkung das auf Bürger oder Unternehmen hat.\n'
-                f'Gericht: {g}\nDatum: {d}\nBetreff: {b}\nLeitsatz: {l}'
-            )
-            z_en = groq_chat(
-                f'Summarize this EU court ruling in 2-3 sentences in English.\n'
-                f'Explain what was decided and what impact it has on citizens or businesses.\n'
-                f'Court: {g}\nDate: {d}\nSubject: {b}\nHeadnote: {l}'
-            )
-            a_de = groq_chat(
-                'Erkläre in 1-2 Sätzen auf Deutsch die praktische Auswirkung dieses EU-Urteils auf den Alltag.'
-            )
-            a_en = groq_chat(
-                'Explain in 1-2 sentences in English the practical impact of this EU ruling on everyday life.'
-            )
+            z_de = groq_chat(PROMPT_SUMMARY_DE.format(gericht=g, datum=d, betreff=b))
+            z_en = groq_chat(PROMPT_SUMMARY_EN.format(gericht=g, datum=d, betreff=b))
+            a_de = groq_chat(PROMPT_IMPACT_DE.format(gericht=g, datum=d, betreff=b))
+            a_en = groq_chat(PROMPT_IMPACT_EN.format(gericht=g, datum=d, betreff=b))
 
             if not all([z_de, z_en, a_de, a_en]):
                 log(f'  überspringe id={uid} (unvollständige Groq-Antwort)')
@@ -130,7 +145,7 @@ def main():
                 '''
                 UPDATE eu_urteile
                 SET zusammenfassung_de=%s, zusammenfassung_en=%s,
-                    auswirkung_de=%s, auswirkung_en=%s
+                    auswirkung_de=%s, auswirkung_en=%s, quality_ok=1
                 WHERE id=%s
                 ''',
                 (z_de, z_en, a_de, a_en, uid),
