@@ -1121,6 +1121,352 @@ app.get("/api/wahlen/region/:ags", async (req, res) => {
   }
 });
 
+app.get("/api/world/categories", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT indicator_code, indicator_name, category, unit,
+              description_de, description_en
+       FROM world_indicator_meta
+       ORDER BY category, indicator_code`,
+    );
+    const byCat = new Map();
+    for (const r of rows) {
+      const cat = r.category || "other";
+      if (!byCat.has(cat)) byCat.set(cat, []);
+      byCat.get(cat).push({
+        code: r.indicator_code,
+        name: r.indicator_name,
+        unit: r.unit,
+        description_de: r.description_de,
+        description_en: r.description_en,
+      });
+    }
+    const order = Object.keys(WORLD_CATEGORY_LABELS);
+    const out = [];
+    for (const id of order) {
+      const indicators = byCat.get(id);
+      if (!indicators?.length) continue;
+      const lab = WORLD_CATEGORY_LABELS[id];
+      out.push({
+        id,
+        label_de: lab.label_de,
+        label_en: lab.label_en,
+        indicators,
+      });
+    }
+    for (const [id, indicators] of byCat) {
+      if (order.includes(id)) continue;
+      out.push({
+        id,
+        label_de: id,
+        label_en: id,
+        indicators,
+      });
+    }
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/indicators", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT indicator_code AS code, indicator_name AS name, category, unit,
+              description_de, description_en, source, source_url
+       FROM world_indicator_meta
+       ORDER BY category, indicator_code`,
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/map", async (req, res) => {
+  const indicator = String(req.query.indicator || "").trim();
+  let year = Number.parseInt(String(req.query.year || ""), 10);
+  if (!indicator) {
+    res.status(400).json({ error: "indicator erforderlich" });
+    return;
+  }
+  if (!Number.isFinite(year)) {
+    res.status(400).json({ error: "year ungültig" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT country_code, country_name, value, region, income_level
+       FROM world_indicators
+       WHERE indicator_code = ? AND year = ? AND value IS NOT NULL`,
+      [indicator, year],
+    );
+    res.json(
+      rows.map((r) => ({
+        country_code: r.country_code,
+        country_name: r.country_name,
+        value: worldNum(r.value),
+        region: r.region,
+        income_level: r.income_level,
+      })),
+    );
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/country/:code", async (req, res) => {
+  const code = String(req.params.code || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 3);
+  if (!code || code.length !== 3) {
+    res.status(400).json({ error: "Ungültiger Ländercode" });
+    return;
+  }
+  try {
+    const [[meta]] = await getPool().query(
+      `SELECT DISTINCT country_code, country_name, region, income_level
+       FROM world_indicators
+       WHERE country_code = ?
+       LIMIT 1`,
+      [code],
+    );
+    if (!meta) {
+      res.status(404).json({ error: "Nicht gefunden" });
+      return;
+    }
+    const [dataRows] = await getPool().query(
+      `SELECT indicator_code, year, value
+       FROM world_indicators
+       WHERE country_code = ?
+       ORDER BY indicator_code, year ASC`,
+      [code],
+    );
+    const [metaRows] = await getPool().query(
+      `SELECT indicator_code, indicator_name, category
+       FROM world_indicator_meta`,
+    );
+    const metaByCode = new Map(
+      metaRows.map((m) => [m.indicator_code, m]),
+    );
+    const byInd = new Map();
+    for (const r of dataRows) {
+      const ic = r.indicator_code;
+      if (!byInd.has(ic)) byInd.set(ic, []);
+      byInd.get(ic).push({
+        year: r.year,
+        value: worldNum(r.value),
+      });
+    }
+    const indicators = [];
+    for (const [indicator_code, values] of byInd) {
+      const m = metaByCode.get(indicator_code);
+      indicators.push({
+        indicator_code,
+        name: m?.indicator_name ?? indicator_code,
+        category: m?.category ?? null,
+        values,
+      });
+    }
+    indicators.sort((a, b) =>
+      a.indicator_code.localeCompare(b.indicator_code),
+    );
+    res.json({
+      country_code: meta.country_code,
+      country_name: meta.country_name,
+      region: meta.region,
+      income_level: meta.income_level,
+      indicators,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/timeseries", async (req, res) => {
+  const country = String(req.query.country || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 3);
+  const indicator = String(req.query.indicator || "").trim();
+  if (!country || country.length !== 3 || !indicator) {
+    res.status(400).json({ error: "country und indicator erforderlich" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT year, value
+       FROM world_indicators
+       WHERE country_code = ? AND indicator_code = ?
+       ORDER BY year ASC`,
+      [country, indicator],
+    );
+    res.json(
+      rows.map((r) => ({
+        year: r.year,
+        value: worldNum(r.value),
+      })),
+    );
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/compare", async (req, res) => {
+  const countriesRaw = String(req.query.countries || "").trim();
+  const indicator = String(req.query.indicator || "").trim();
+  if (!countriesRaw || !indicator) {
+    res.status(400).json({ error: "countries und indicator erforderlich" });
+    return;
+  }
+  const codes = countriesRaw
+    .split(",")
+    .map((s) => s.trim().toUpperCase().slice(0, 3))
+    .filter((c) => c.length === 3);
+  if (!codes.length) {
+    res.status(400).json({ error: "Keine gültigen Ländercodes" });
+    return;
+  }
+  const uniq = [...new Set(codes)];
+  try {
+    const ph = uniq.map(() => "?").join(",");
+    const [rows] = await getPool().query(
+      `SELECT country_code, country_name, year, value
+       FROM world_indicators
+       WHERE indicator_code = ? AND country_code IN (${ph})
+       ORDER BY country_code, year ASC`,
+      [indicator, ...uniq],
+    );
+    const byCountry = new Map();
+    for (const r of rows) {
+      if (!byCountry.has(r.country_code)) {
+        byCountry.set(r.country_code, {
+          code: r.country_code,
+          name: r.country_name,
+          data: [],
+        });
+      }
+      byCountry.get(r.country_code).data.push({
+        year: r.year,
+        value: worldNum(r.value),
+      });
+    }
+    const countries = uniq
+      .map((c) => byCountry.get(c))
+      .filter(Boolean);
+    res.json({ countries });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/ranking", async (req, res) => {
+  const indicator = String(req.query.indicator || "").trim();
+  let year = Number.parseInt(String(req.query.year || ""), 10);
+  let limit = Number.parseInt(String(req.query.limit || "20"), 10);
+  const order = String(req.query.order || "desc").toLowerCase() === "asc"
+    ? "ASC"
+    : "DESC";
+  if (!indicator || !Number.isFinite(year)) {
+    res.status(400).json({ error: "indicator und year erforderlich" });
+    return;
+  }
+  if (!Number.isFinite(limit) || limit < 1) limit = 20;
+  if (limit > 500) limit = 500;
+  try {
+    const [rows] = await getPool().query(
+      `SELECT country_code, country_name, value
+       FROM world_indicators
+       WHERE indicator_code = ? AND year = ? AND value IS NOT NULL
+       ORDER BY value ${order}, country_code ASC
+       LIMIT ?`,
+      [indicator, year, limit],
+    );
+    const out = rows.map((r, i) => ({
+      country_code: r.country_code,
+      country_name: r.country_name,
+      value: worldNum(r.value),
+      rank: i + 1,
+    }));
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/scatter", async (req, res) => {
+  const xCode = String(req.query.x || "").trim();
+  const yCode = String(req.query.y || "").trim();
+  let year = Number.parseInt(String(req.query.year || ""), 10);
+  if (!xCode || !yCode || !Number.isFinite(year)) {
+    res.status(400).json({ error: "x, y und year erforderlich" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT a.country_code, a.country_name, a.region,
+              a.value AS x, b.value AS y
+       FROM world_indicators a
+       INNER JOIN world_indicators b
+         ON a.country_code = b.country_code AND a.year = b.year
+       WHERE a.indicator_code = ? AND b.indicator_code = ?
+         AND a.year = ?
+         AND a.value IS NOT NULL AND b.value IS NOT NULL`,
+      [xCode, yCode, year],
+    );
+    res.json(
+      rows.map((r) => ({
+        country_code: r.country_code,
+        country_name: r.country_name,
+        region: r.region,
+        x: worldNum(r.x),
+        y: worldNum(r.y),
+      })),
+    );
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/stats", async (_req, res) => {
+  try {
+    const pool = getPool();
+    const [[{ total_records }]] = await pool.query(
+      "SELECT COUNT(*) AS total_records FROM world_indicators",
+    );
+    const [[{ countries }]] = await pool.query(
+      "SELECT COUNT(DISTINCT country_code) AS countries FROM world_indicators",
+    );
+    const [[{ indicators }]] = await pool.query(
+      "SELECT COUNT(*) AS indicators FROM world_indicator_meta",
+    );
+    const [[yr]] = await pool.query(
+      "SELECT MIN(year) AS y_min, MAX(year) AS y_max FROM world_indicators",
+    );
+    res.json({
+      total_records: Number(total_records) || 0,
+      countries: Number(countries) || 0,
+      indicators: Number(indicators) || 0,
+      years_range:
+        yr.y_min != null && yr.y_max != null
+          ? { min: yr.y_min, max: yr.y_max }
+          : null,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`API listening on port ${PORT}`);
 });
