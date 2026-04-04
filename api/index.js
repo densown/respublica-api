@@ -1037,6 +1037,34 @@ app.get("/api/wahlen/change", async (req, res) => {
   }
 });
 
+/** Bundesweiter Durchschnitt pro Wahljahr (alle Kreise mit Wert) */
+app.get("/api/wahlen/national-average", async (req, res) => {
+  const typ = wahlenParseTyp(req.query.typ);
+  const party = String(req.query.party || "").trim().toLowerCase();
+  if (!typ || !WAHlen_NUM_COLS.has(party)) {
+    res.status(400).json({ error: "typ und party erforderlich" });
+    return;
+  }
+  const sql = `
+    SELECT election_year AS year, AVG(\`${party}\`) AS value
+    FROM wahlen
+    WHERE typ = ? AND \`${party}\` IS NOT NULL
+    GROUP BY election_year
+    ORDER BY election_year ASC
+  `;
+  try {
+    const [rows] = await getPool().query(sql, [typ]);
+    const out = rows.map((r) => ({
+      year: r.year,
+      value: r.value != null ? Number(r.value) : null,
+    }));
+    res.json(out);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
 app.get("/api/wahlen/stats", async (_req, res) => {
   try {
     const pool = getPool();
