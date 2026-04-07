@@ -1,0 +1,21 @@
+# Cursor Rules — Res.Publica
+
+## Dokumentation aktuell halten
+
+Nach jeder strukturellen Änderung (neue Dateien, neue API-Endpunkte, neue DB-Tabellen, neue Cronjobs, neue Seiten/Komponenten) die zugehörige Dokumentation aktualisieren:
+
+- Server-Gesamtübersicht: `/root/SERVER.md`
+- Gesetze-API: `/root/apps/gesetze/SERVER-DOKU.md`
+- Dashboard: `/root/apps/dashboard/README.md`
+
+Am Ende der jeweiligen Doku-Datei das aktuelle Datum als „Zuletzt aktualisiert“ eintragen.
+
+## Code-Regeln
+
+- IMMER bestehende Komponenten aus `src/design-system/` nutzen, KEINE neuen erstellen
+- IMMER i18n-Keys in `src/design-system/i18n.ts` für neue Texte
+- IMMER `useTheme()` für Dark/Light Mode
+- IMMER mobile-first (min 320px, Breakpoint 768px, 44px Touch-Targets)
+- NIEMALS `params`-Objekt als zweites Argument an `useApi` — Query-Parameter in den Endpoint-String einbetten
+- NIEMALS neue Dependencies ohne Rücksprache
+- Cursor IMMER auf Auto Mode, NIEMALS auf Opus

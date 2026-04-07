@@ -2,14 +2,44 @@
 
 ## 1. Übersicht
 
-Dieses Projekt liefert eine Express-API (Port standardmäßig `3002`, aus `.env`), Cron-Skripte und eine MariaDB-Datenbank `respublica_gesetze`.
+Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `scripts/`, MariaDB-Datenbank **`respublica_gesetze`**. Produktivbetrieb API: **PM2**, Prozessname **`api`**, Skript `/root/apps/gesetze/api/index.js`.
 
 ## 2. Umgebung
 
-- Konfiguration: `.env` im Projektroot (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `PORT`).
-- API-Start: typischerweise `pm2` (z. B. Prozessname `api`).
+- Konfiguration: `.env` im Projektroot (`DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `PORT`, SMTP, optional KI-Keys).
+- API-Start: `pm2 restart api` (Logs: `/root/.pm2/logs/api-*.log`).
 
-## 3. Datenbank
+## 3. Datenbank `respublica_gesetze`
+
+### Alle Tabellen (aus `SHOW TABLES`)
+
+| Tabelle | Zeilen (Stand 7. April 2026) |
+|---------|------------------------------|
+| `abgeordnete` | 629 |
+| `abstimmungen` | 276 |
+| `aenderungen` | 262 |
+| `eu_rechtsakte` | 591 |
+| `eu_rechtsakt_gesetze` | 6 |
+| `eu_urteile` | 347 |
+| `eu_urteil_rechtsakte` | 0 |
+| `gesetze` | 229 |
+| `urteile` | 578 |
+| `urteil_gesetze` | 866 |
+| `wahlen` | 49 857 |
+| `world_indicators` | 249 781 |
+| `world_indicator_meta` | 51 |
+
+Kernzählen (wie Monitoring-Query):
+
+| Kennzahl | Anzahl |
+|----------|--------|
+| Gesetze (`gesetze`) | 229 |
+| Änderungen (`aenderungen`) | 262 |
+| Urteile (`urteile`) | 578 |
+| EU-Urteile (`eu_urteile`) | 347 |
+| EU-Rechtsakte (`eu_rechtsakte`) | 591 |
+| Abgeordnete (`abgeordnete`) | 629 |
+| Abstimmungen (`abstimmungen`) | 276 |
 
 ### Tabelle `abgeordnete`
 
@@ -23,7 +53,7 @@ Bundestagsabgeordnete (21. Wahlperiode), befüllt per `scripts/fetch_abgeordnete
 | `vorname`      | Vorname |
 | `nachname`     | Nachname |
 | `name`         | Anzeigename / Label aus der API |
-| `fraktion`     | Fraktionsbezeichnung ( gekürzt ohne „(Bundestag …)“-Suffix ) |
+| `fraktion`     | Fraktionsbezeichnung (gekürzt ohne „(Bundestag …)“-Suffix) |
 | `wahlkreis`    | Wahlkreis-Label aus der API |
 | `wahlkreis_nr` | Wahlkreisnummer (falls in der Response vorhanden oder aus dem Label ableitbar) |
 | `listenplatz`  | Listenplatz |
@@ -34,24 +64,102 @@ Bundestagsabgeordnete (21. Wahlperiode), befüllt per `scripts/fetch_abgeordnete
 
 DDL: `migrations/002_abgeordnete.sql`
 
-## 4. HTTP-API (Auszug Bundestag)
+## 4. HTTP-API
 
-| Methode | Pfad | Beschreibung |
-|---------|------|--------------|
-| GET | `/api/bundestag/abgeordnete` | Alle Einträge aus `abgeordnete`, sortiert nach `fraktion`, `nachname` |
-| GET | `/api/bundestag/abgeordnete/:id` | Ein Eintrag; `:id` ist die Abgeordnetenwatch-Mandats-ID (`aw_id`) |
+Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`PUT`/`DELETE`-Routen in dieser Datei.
 
-Weitere Endpunkte siehe `api/index.js` (Gesetze, Abstimmungen, EU-Recht, Urteile, …).
+| Methode | Pfad | Kurzbeschreibung |
+|---------|------|------------------|
+| GET | `/api/gesetze` | Liste Gesetzesänderungen (ohne Diff) |
+| GET | `/api/gesetze/stats` | Zähler Gesetze / Änderungen |
+| GET | `/api/gesetze/:id` | Einzeländerung inkl. Diff |
+| GET | `/api/abstimmungen/latest` | Neueste namentliche Abstimmungen (limit query) |
+| GET | `/api/abstimmungen/:poll_id` | Abstimmung nach poll_id |
+| GET | `/api/bundestag/sitzverteilung` | Feste Sitzverteilung WP21 |
+| GET | `/api/bundestag/abgeordnete` | Alle Abgeordneten |
+| GET | `/api/bundestag/abgeordnete/:id` | Ein Abgeordneter (`aw_id`) |
+| GET | `/api/bundestag/abstimmungen` | Abstimmungen Übersicht |
+| GET | `/api/bundestag/abstimmungen/:pollId` | Abstimmung nach pollId |
+| GET | `/api/urteile` | Urteile Liste |
+| GET | `/api/urteile/:id` | Urteil Detail |
+| GET | `/api/eu-recht/stats` | Statistik EU-Rechtsakte |
+| GET | `/api/eu-recht` | EU-Rechtsakte Liste |
+| GET | `/api/eu-recht/:id` | EU-Rechtsakt Detail |
+| GET | `/api/eu-urteile/stats` | Statistik EU-Urteile |
+| GET | `/api/eu-urteile` | EU-Urteile Liste |
+| GET | `/api/eu-urteile/:id` | EU-Urteil Detail |
+| GET | `/api/wahlen/types` | Wahlen-Typen |
+| GET | `/api/wahlen/years` | Jahre |
+| GET | `/api/wahlen/states` | Bundesländer |
+| GET | `/api/wahlen/map` | Kartendaten |
+| GET | `/api/wahlen/timeseries` | Zeitreihen |
+| GET | `/api/wahlen/compare` | Vergleich |
+| GET | `/api/wahlen/scatter` | Scatter |
+| GET | `/api/wahlen/ranking` | Ranking |
+| GET | `/api/wahlen/change` | Wechsel |
+| GET | `/api/wahlen/national-average` | Bundesdurchschnitt |
+| GET | `/api/wahlen/stats` | Statistik |
+| GET | `/api/wahlen/region/:ags` | Region nach AGS |
+| GET | `/api/world/categories` | Indikator-Kategorien |
+| GET | `/api/world/indicators` | Indikatoren |
+| GET | `/api/world/map` | Weltkarte |
+| GET | `/api/world/country/:code` | Land |
+| GET | `/api/world/timeseries` | Zeitreihe |
+| GET | `/api/world/compare` | Vergleich |
+| GET | `/api/world/ranking` | Ranking |
+| GET | `/api/world/scatter` | Scatter |
+| GET | `/api/world/stats` | Statistik |
 
-## 5. Logs
+## 5. Cronjobs (root, Stand 7. April 2026)
 
-Cron-/Import-Logs werden u. a. unter `logs/cron.log` geschrieben (siehe Skripte).
+| Zeit (UTC) | Skript | Beschreibung |
+|------------|--------|--------------|
+| 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
+| 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
+| 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen` |
+| 06:15 | `fetch_bgbl.py` | BGBl-Aktualitätendienst → `bgbl_referenz` an `aenderungen` |
+| 06:20 | `match_abstimmungen.py` | Verknüpfung Abstimmungen mit `aenderungen` (DIP/API) |
+| 06:25 | `summarize_gesetze.py` | Groq-Zusammenfassungen für Änderungen |
+| 06:30 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |
+| 06:40 | `summarize_urteile.py` | Groq-Zusammenfassungen Urteile |
+| 06:45 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
+| 06:55 | `summarize_eu_urteile.py` | Groq-Zusammenfassungen EU-Urteile |
+| */5 | `pm2 jlist` | Schreibt `/root/apps/gesetze/data/pm2-status.json` |
 
-## 6. Cronjobs
+Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpress.sh`.
 
-Empfohlene / bestehende periodische Aufgaben (Zeiten nach Bedarf anpassen):
+## 6. Skripte unter `scripts/` (Einzeiler)
 
-- **EU-Recht:** `scripts/fetch_eu_recht.py` (EUR-Lex / SPARQL)
-- **Abgeordnete Bundestag:** `python3 /root/apps/gesetze/scripts/fetch_abgeordnete.py` – aktualisiert Tabelle `abgeordnete` aus `candidacies-mandates` (Wahlperiode 21, `parliament_period=161`). Zwischen API-Seiten 2 s Pause; wiederholbar per `INSERT … ON DUPLICATE KEY UPDATE`.
+| Datei | Zweck |
+|-------|--------|
+| `backfill_diffs.py` | Letzte 30 Tage Git-Commits im Gesetze-Repo, Diffs nach DB backfillen |
+| `backfill_eu_betreff.py` | Betreffzeilen zu EU-Akten aus EUR-Lex-HTML nachziehen |
+| `backfill_tenors.py` | Tenor-Felder für Urteile nachziehen (BeautifulSoup) |
+| `bundestag_gesetze_diffs.py` | Tages-Diffs aus Git-Repo als JSON |
+| `enrich_eu_urteile.py` | EU-Urteile anreichern (EUR-Lex, RDF, SPARQL) |
+| `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete` |
+| `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` |
+| `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
+| `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
+| `fetch_eu_urteile.py` | EU-Gerichte EuGH/EuG per SPARQL + Fallback |
+| `fetch_urteile.py` | RSS rechtsprechung-im-internet → `urteile` |
+| `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |
+| `import_diffs_to_db.py` | `data/diffs/YYYY-MM-DD.json` → MariaDB |
+| `import_wahlen.py` | GERDA/Wahldaten-CSV → `wahlen` |
+| `import_world_indicators.py` | World-Bank-artige Indikatoren → `world_indicators` |
+| `match_abstimmungen.py` | DIP-Abgleich `aenderungen` ↔ `abstimmungen` |
+| `migrate_eu_urteile.py` | Schema-Hilfe `eu_urteile` / `eu_urteil_rechtsakte` |
+| `resummarize_claude.py` | EU-Urteile neu zusammenfassen (Claude CLI) |
+| `resummarize_rechtsakte.py` | EU-Rechtsakte neu zusammenfassen (Claude) |
+| `summarize_eu_recht.py` | KI-Zusammenfassungen `eu_rechtsakte` (Groq) |
+| `summarize_eu_urteile.py` | KI-Zusammenfassungen `eu_urteile` DE/EN (Groq) |
+| `summarize_gesetze.py` | Kurz-Zusammenfassungen `aenderungen` (Groq) |
+| `summarize_urteile.py` | Kurz-Zusammenfassungen Bundesgerichte (Groq) |
 
-Nach Schemaänderungen: Migration ausführen, Import-Skript testen, API neu starten (`pm2 restart api`), Endpunkte prüfen (z. B. `curl http://localhost:3002/api/bundestag/abgeordnete`).
+## 7. Logs
+
+Cron-/Import-Ausgaben: `logs/cron.log`; weitere Logdateien z. B. in `logs/` pro Skript.
+
+---
+
+**Zuletzt aktualisiert:** 7. April 2026
