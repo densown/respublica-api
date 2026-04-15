@@ -439,7 +439,7 @@ app.get("/api/eu-recht", async (req, res) => {
 
     const [listRows] = await pool.query(
       `SELECT id, celex, titel_de, titel_en, typ, typ_label, datum, in_kraft,
-              zusammenfassung, rechtsgebiet, eurlex_url, created_at
+              zusammenfassung_de, zusammenfassung_en, rechtsgebiet, eurlex_url, created_at
        FROM eu_rechtsakte
        ${where}
        ORDER BY datum DESC, id DESC
@@ -476,7 +476,7 @@ app.get("/api/eu-recht", async (req, res) => {
       typ_label: r.typ_label,
       datum: formatDate(r.datum),
       in_kraft: r.in_kraft,
-      zusammenfassung: r.zusammenfassung,
+      zusammenfassung_de: r.zusammenfassung_de, zusammenfassung_en: r.zusammenfassung_en,
       rechtsgebiet: r.rechtsgebiet,
       eurlex_url: r.eurlex_url,
       linked_gesetze: linked[r.id] || [],
@@ -499,7 +499,7 @@ app.get("/api/eu-recht/:id", async (req, res) => {
   try {
     const [rows] = await getPool().query(
       `SELECT id, celex, titel_de, titel_en, typ, typ_label, datum, in_kraft,
-              eurovoc_tags, zusammenfassung, rechtsgebiet, eurlex_url, created_at
+              eurovoc_tags, zusammenfassung_de, zusammenfassung_en, rechtsgebiet, eurlex_url, created_at
        FROM eu_rechtsakte WHERE id = ? LIMIT 1`,
       [id]
     );
@@ -534,7 +534,7 @@ app.get("/api/eu-recht/:id", async (req, res) => {
       datum: formatDate(r.datum),
       in_kraft: r.in_kraft,
       eurovoc_tags: tags,
-      zusammenfassung: r.zusammenfassung,
+      zusammenfassung_de: r.zusammenfassung_de, zusammenfassung_en: r.zusammenfassung_en,
       rechtsgebiet: r.rechtsgebiet,
       eurlex_url: r.eurlex_url,
       linked_gesetze: linkRows.map((x) => ({
@@ -708,6 +708,345 @@ app.get("/api/eu-urteile/:id", async (req, res) => {
         titel_de: x.akt_titel_de,
         titel_en: x.akt_titel_en,
       })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+function safeJsonParse(raw, fallback) {
+  if (raw == null) return fallback;
+  if (typeof raw === "object") return raw;
+  if (typeof raw !== "string") return fallback;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+app.get("/api/lobbyregister", async (req, res) => {
+  try {
+    let page = Number.parseInt(String(req.query.page ?? "0"), 10);
+    let limit = Number.parseInt(String(req.query.limit ?? "50"), 10);
+    const q = String(req.query.q ?? "").trim();
+    const sortRaw = String(req.query.sort ?? "financial_expenses_euro DESC").trim();
+    const foi = String(req.query.foi ?? "").trim();
+    const city = String(req.query.city ?? "").trim();
+    const active = String(req.query.active ?? "").trim().toLowerCase();
+    let minExpense = Number.parseInt(String(req.query.min_expense ?? "0"), 10);
+
+    if (!Number.isFinite(page) || page < 0) page = 0;
+    if (!Number.isFinite(limit) || limit < 1) limit = 50;
+    if (limit > 100) limit = 100;
+    if (!Number.isFinite(minExpense) || minExpense < 0) minExpense = 0;
+
+    const allowedSort = new Set([
+      "financial_expenses_euro DESC",
+      "financial_expenses_euro ASC",
+      "name ASC",
+      "name DESC",
+      "employee_fte DESC",
+      "employee_fte ASC",
+      "regulatory_projects_count DESC",
+      "regulatory_projects_count ASC",
+      "statements_count DESC",
+      "statements_count ASC",
+      "updated_at DESC",
+      "updated_at ASC",
+    ]);
+    const sort = allowedSort.has(sortRaw) ? sortRaw : "financial_expenses_euro DESC";
+
+    let where = "WHERE 1=1";
+    const params = [];
+    if (q) {
+      where += " AND name LIKE ?";
+      params.push(`%${q}%`);
+    }
+    if (foi) {
+      where += " AND JSON_CONTAINS(fields_of_interest, JSON_OBJECT('code', ?))";
+      params.push(foi);
+    }
+    if (city) {
+      where += " AND city = ?";
+      params.push(city);
+    }
+    if (active === "true") {
+      where += " AND active = 1";
+    }
+    if (minExpense > 0) {
+      where += " AND financial_expenses_euro >= ?";
+      params.push(minExpense);
+    }
+
+    const pool = getPool();
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM lobbyregister ${where}`,
+      params,
+    );
+
+    const offset = page * limit;
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         register_number,
+         name,
+         legal_form,
+         city,
+         active,
+         employee_fte,
+         financial_expenses_euro,
+         financial_year_start,
+         financial_year_end,
+         fields_of_interest,
+         regulatory_projects_count,
+         statements_count,
+         details_url
+       FROM lobbyregister
+       ${where}
+       ORDER BY ${sort}, id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      register_number: r.register_number,
+      name: r.name,
+      legal_form: r.legal_form,
+      city: r.city,
+      active: r.active === null ? null : Boolean(r.active),
+      employee_fte: r.employee_fte != null ? Number(r.employee_fte) : null,
+      financial_expenses_euro:
+        r.financial_expenses_euro != null ? Number(r.financial_expenses_euro) : null,
+      financial_year_start: formatDate(r.financial_year_start),
+      financial_year_end: formatDate(r.financial_year_end),
+      fields_of_interest: safeJsonParse(r.fields_of_interest, []),
+      regulatory_projects_count:
+        r.regulatory_projects_count != null ? Number(r.regulatory_projects_count) : null,
+      statements_count: r.statements_count != null ? Number(r.statements_count) : null,
+      details_url: r.details_url,
+    }));
+
+    res.json({ total: Number(total) || 0, page, limit, items });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobbyregister/stats", async (_req, res) => {
+  try {
+    const pool = getPool();
+    const [[agg]] = await pool.query(
+      `SELECT
+         COUNT(*) AS total,
+         SUM(CASE WHEN active = 1 THEN 1 ELSE 0 END) AS active,
+         SUM(CASE WHEN financial_expenses_euro IS NOT NULL THEN 1 ELSE 0 END) AS mit_finanzdaten,
+         MAX(financial_expenses_euro) AS max_ausgaben,
+         AVG(financial_expenses_euro) AS avg_ausgaben
+       FROM lobbyregister`,
+    );
+    const [top10Rows] = await pool.query(
+      `SELECT
+         register_number,
+         name,
+         city,
+         financial_expenses_euro,
+         employee_fte,
+         details_url
+       FROM lobbyregister
+       WHERE financial_expenses_euro IS NOT NULL
+       ORDER BY financial_expenses_euro DESC
+       LIMIT 10`,
+    );
+    const top10 = top10Rows.map((r) => ({
+      register_number: r.register_number,
+      name: r.name,
+      city: r.city,
+      financial_expenses_euro:
+        r.financial_expenses_euro != null ? Number(r.financial_expenses_euro) : null,
+      employee_fte: r.employee_fte != null ? Number(r.employee_fte) : null,
+      details_url: r.details_url,
+    }));
+
+    res.json({
+      total: Number(agg?.total) || 0,
+      active: Number(agg?.active) || 0,
+      mit_finanzdaten: Number(agg?.mit_finanzdaten) || 0,
+      max_ausgaben: agg?.max_ausgaben != null ? Number(agg.max_ausgaben) : null,
+      avg_ausgaben: agg?.avg_ausgaben != null ? Number(agg.avg_ausgaben) : null,
+      top10,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobbyregister/by-field", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT
+         foi.code AS code,
+         foi.de AS de,
+         foi.en AS en,
+         COUNT(*) AS count,
+         SUM(financial_expenses_euro) AS total_expenses,
+         AVG(financial_expenses_euro) AS avg_expenses
+       FROM lobbyregister,
+       JSON_TABLE(fields_of_interest, '$[*]' COLUMNS (
+         code VARCHAR(100) PATH '$.code',
+         de VARCHAR(200) PATH '$.de',
+         en VARCHAR(200) PATH '$.en'
+       )) AS foi
+       WHERE financial_expenses_euro IS NOT NULL
+         AND active = 1
+       GROUP BY foi.code, foi.de, foi.en
+       ORDER BY total_expenses DESC
+       LIMIT 15`,
+    );
+
+    res.json({
+      items: rows.map((r) => ({
+        code: r.code,
+        de: r.de,
+        en: r.en,
+        count: Number(r.count) || 0,
+        total_expenses:
+          r.total_expenses != null ? Number(r.total_expenses) : null,
+        avg_expenses: r.avg_expenses != null ? Number(r.avg_expenses) : null,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobbyregister/by-city", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT
+         city,
+         country,
+         COUNT(*) AS count,
+         SUM(financial_expenses_euro) AS total_expenses,
+         AVG(financial_expenses_euro) AS avg_expenses
+       FROM lobbyregister
+       WHERE active = 1
+         AND city IS NOT NULL
+         AND city != ''
+       GROUP BY city, country
+       ORDER BY total_expenses DESC
+       LIMIT 50`,
+    );
+
+    res.json({
+      items: rows.map((r) => ({
+        city: r.city,
+        country: r.country,
+        count: Number(r.count) || 0,
+        total_expenses:
+          r.total_expenses != null ? Number(r.total_expenses) : null,
+        avg_expenses: r.avg_expenses != null ? Number(r.avg_expenses) : null,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobbyregister/by-time", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT
+         DATE_FORMAT(first_publication, '%Y-%m') AS month,
+         COUNT(*) AS count,
+         SUM(COUNT(*)) OVER (
+           ORDER BY DATE_FORMAT(first_publication, '%Y-%m')
+         ) AS cumulative
+       FROM lobbyregister
+       WHERE first_publication IS NOT NULL
+       GROUP BY DATE_FORMAT(first_publication, '%Y-%m')
+       ORDER BY month ASC`,
+    );
+
+    res.json({
+      items: rows.map((r) => ({
+        month: r.month,
+        count: Number(r.count) || 0,
+        cumulative: Number(r.cumulative) || 0,
+      })),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobbyregister/:register_number", async (req, res) => {
+  const registerNumber = String(req.params.register_number || "").trim();
+  if (!registerNumber) {
+    res.status(400).json({ error: "Ungültige register_number" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT
+         id,
+         register_number,
+         name,
+         legal_form,
+         city,
+         country,
+         active,
+         members_count,
+         employee_fte,
+         financial_expenses_euro,
+         financial_year_start,
+         financial_year_end,
+         fields_of_interest,
+         activity_description,
+         regulatory_projects_count,
+         statements_count,
+         details_url,
+         first_publication,
+         last_update
+       FROM lobbyregister
+       WHERE register_number = ?
+       LIMIT 1`,
+      [registerNumber],
+    );
+    if (!rows.length) {
+      res.status(404).json({ error: "Nicht gefunden" });
+      return;
+    }
+    const r = rows[0];
+    res.json({
+      id: r.id,
+      register_number: r.register_number,
+      name: r.name,
+      legal_form: r.legal_form,
+      city: r.city,
+      country: r.country,
+      active: r.active === null ? null : Boolean(r.active),
+      members_count: r.members_count != null ? Number(r.members_count) : null,
+      employee_fte: r.employee_fte != null ? Number(r.employee_fte) : null,
+      financial_expenses_euro:
+        r.financial_expenses_euro != null ? Number(r.financial_expenses_euro) : null,
+      financial_year_start: formatDate(r.financial_year_start),
+      financial_year_end: formatDate(r.financial_year_end),
+      fields_of_interest: safeJsonParse(r.fields_of_interest, []),
+      activity_description: r.activity_description,
+      regulatory_projects_count:
+        r.regulatory_projects_count != null ? Number(r.regulatory_projects_count) : null,
+      statements_count: r.statements_count != null ? Number(r.statements_count) : null,
+      details_url: r.details_url,
+      first_publication: formatDate(r.first_publication),
+      last_update: formatDate(r.last_update),
     });
   } catch (err) {
     console.error(err);
@@ -1392,7 +1731,7 @@ app.get("/api/world/compare", async (req, res) => {
 app.get("/api/world/ranking", async (req, res) => {
   const indicator = String(req.query.indicator || "").trim();
   let year = Number.parseInt(String(req.query.year || ""), 10);
-  let limit = Number.parseInt(String(req.query.limit || "20"), 10);
+  let limit = Number.parseInt(String(req.query.limit || "2500"), 10);
   const order = String(req.query.order || "desc").toLowerCase() === "asc"
     ? "ASC"
     : "DESC";
@@ -1400,8 +1739,8 @@ app.get("/api/world/ranking", async (req, res) => {
     res.status(400).json({ error: "indicator und year erforderlich" });
     return;
   }
-  if (!Number.isFinite(limit) || limit < 1) limit = 20;
-  if (limit > 500) limit = 500;
+  if (!Number.isFinite(limit) || limit < 1) limit = 2500;
+  if (limit > 5000) limit = 5000;
   try {
     const [rows] = await getPool().query(
       `SELECT country_code, country_name, value

@@ -23,6 +23,7 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `eu_urteile` | 347 |
 | `eu_urteil_rechtsakte` | 0 |
 | `gesetze` | 229 |
+| `lobbyregister` | neu (Befüllung via Script/Cron) |
 | `urteile` | 578 |
 | `urteil_gesetze` | 866 |
 | `wahlen` | 49 857 |
@@ -88,6 +89,12 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | GET | `/api/eu-urteile/stats` | Statistik EU-Urteile |
 | GET | `/api/eu-urteile` | EU-Urteile Liste |
 | GET | `/api/eu-urteile/:id` | EU-Urteil Detail |
+| GET | `/api/lobbyregister` | Lobby-Liste mit Pagination, Suche und Sortierung |
+| GET | `/api/lobbyregister/stats` | Lobby-Statistiken inkl. Top-10 nach Ausgaben |
+| GET | `/api/lobbyregister/by-field` | Aggregierte Lobby-Ausgaben pro Interessensgebiet (Top 15) |
+| GET | `/api/lobbyregister/by-city` | Aggregierte Lobby-Kennzahlen pro Stadt (Top 50, nur aktiv) |
+| GET | `/api/lobbyregister/by-time` | Registrierungen pro Monat inkl. kumulierter Summe |
+| GET | `/api/lobbyregister/:register_number` | Lobby-Detail inkl. Tätigkeitsbeschreibung |
 | GET | `/api/wahlen/types` | Wahlen-Typen |
 | GET | `/api/wahlen/years` | Jahre |
 | GET | `/api/wahlen/states` | Bundesländer |
@@ -124,6 +131,7 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | 06:40 | `summarize_urteile.py` | Groq-Zusammenfassungen Urteile |
 | 06:45 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
 | 06:55 | `summarize_eu_urteile.py` | Groq-Zusammenfassungen EU-Urteile |
+| 05:30 | `fetch_lobbyregister.py` | Lobbyregister-Import (`sucheDetailJson`) → `lobbyregister` |
 | */5 | `pm2 jlist` | Schreibt `/root/apps/gesetze/data/pm2-status.json` |
 
 Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpress.sh`.
@@ -141,6 +149,7 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
+| `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` (Upsert) |
 | `fetch_eu_urteile.py` | EU-Gerichte EuGH/EuG per SPARQL + Fallback |
 | `fetch_urteile.py` | RSS rechtsprechung-im-internet → `urteile` |
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |
@@ -158,8 +167,8 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 
 ## 7. Logs
 
-Cron-/Import-Ausgaben: `logs/cron.log`; weitere Logdateien z. B. in `logs/` pro Skript.
+Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyregister.log`; weitere Logdateien z. B. in `logs/` pro Skript.
 
 ---
 
-**Zuletzt aktualisiert:** 7. April 2026
+**Zuletzt aktualisiert:** 15. April 2026
