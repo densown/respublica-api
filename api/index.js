@@ -27,6 +27,21 @@ function getPool() {
   return pool;
 }
 
+async function ensureAbstimmungenPollIdIndex() {
+  const sql = `
+    SELECT COUNT(*) AS c
+    FROM information_schema.statistics
+    WHERE table_schema = ?
+      AND table_name = 'abstimmungen'
+      AND index_name = 'idx_poll_id'
+  `;
+  const [[row]] = await getPool().query(sql, [DB_NAME]);
+  if (Number(row?.c) > 0) return;
+  await getPool().query(
+    "ALTER TABLE abstimmungen ADD INDEX idx_poll_id (poll_id)"
+  );
+}
+
 function formatDate(val) {
   if (val == null) return null;
   if (val instanceof Date) return val.toISOString().slice(0, 10);
@@ -35,14 +50,13 @@ function formatDate(val) {
 
 /** Aktuelle Sitzverteilung Bundestag, 21. Wahlperiode (fest codiert) */
 const BUNDESTAG_SITZVERTEILUNG_WP21 = [
-  { partei: "Linke", farbe: "#BE3075", sitze: 28, position: 0 },
-  { partei: "BSW", farbe: "#6B2D5B", sitze: 10, position: 1 },
-  { partei: "Grüne", farbe: "#1AA037", sitze: 117, position: 2 },
-  { partei: "SPD", farbe: "#E3000F", sitze: 120, position: 3 },
-  { partei: "FDP", farbe: "#FFED00", sitze: 91, position: 4 },
-  { partei: "CDU/CSU", farbe: "#000000", sitze: 208, position: 5 },
-  { partei: "AfD", farbe: "#009EE0", sitze: 78, position: 6 },
-  { partei: "Fraktionslos", farbe: "#808080", sitze: 4, position: 7 },
+  { partei: "Linke", farbe: "#BE3075", sitze: 64, position: 0 },
+  { partei: "SSW", farbe: "#003F8E", sitze: 1, position: 1 },
+  { partei: "Grüne", farbe: "#46962B", sitze: 85, position: 2 },
+  { partei: "SPD", farbe: "#E3000F", sitze: 119, position: 3 },
+  { partei: "CDU/CSU", farbe: "#000000", sitze: 208, position: 4 },
+  { partei: "AfD", farbe: "#009EE0", sitze: 150, position: 5 },
+  { partei: "Fraktionslos", farbe: "#808080", sitze: 2, position: 6 },
 ];
 
 const app = express();
@@ -213,6 +227,52 @@ app.get("/api/bundestag/abgeordnete/:id", async (req, res) => {
   }
 });
 
+/** Alle Abgeordneten für Frontend-Hemicycle-Mapping */
+app.get("/api/abgeordnete", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT id, aw_id, name, fraktion, wahlkreis, foto_url, profil_url
+       FROM abgeordnete
+       ORDER BY fraktion, nachname`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+/** Abstimmungshistorie eines Abgeordneten (über votes + abstimmungen) */
+app.get("/api/abgeordnete/:aw_id/votes", async (req, res) => {
+  const awId = Number.parseInt(req.params.aw_id, 10);
+  if (!Number.isFinite(awId)) {
+    res.status(400).json({ error: "Ungültige aw_id" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT v.poll_id, v.vote, a.poll_titel, a.poll_datum
+       FROM votes v
+       JOIN abstimmungen a ON a.poll_id = v.poll_id
+       WHERE v.mandate_id = ?
+       GROUP BY v.poll_id, v.vote, a.poll_titel, a.poll_datum
+       ORDER BY a.poll_datum DESC`,
+      [awId]
+    );
+    res.json(
+      rows.map((r) => ({
+        poll_id: r.poll_id,
+        vote: r.vote,
+        poll_titel: r.poll_titel,
+        poll_datum: formatDate(r.poll_datum),
+      }))
+    );
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
 app.get("/api/bundestag/abstimmungen", async (_req, res) => {
   try {
     const [rows] = await getPool().query(
@@ -277,6 +337,32 @@ app.get("/api/bundestag/abstimmungen/:pollId", async (req, res) => {
         abwesend_gesamt,
       },
       fraktionen,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/bundestag/poll-votes/:poll_id", async (req, res) => {
+  const pollId = Number.parseInt(req.params.poll_id, 10);
+  if (!Number.isFinite(pollId)) {
+    res.status(400).json({ error: "Ungültige poll_id" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT v.mandate_id, v.vote, v.abgeordneter_name
+       FROM votes v
+       WHERE v.poll_id = ?`,
+      [pollId]
+    );
+    res.json({
+      votes: rows.map((r) => ({
+        mandate_id: Number(r.mandate_id),
+        vote: r.vote,
+        abgeordneter_name: r.abgeordneter_name,
+      })),
     });
   } catch (err) {
     console.error(err);
@@ -1913,6 +1999,16 @@ app.get("/api/world/stats", async (_req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`API listening on port ${PORT}`);
-});
+async function start() {
+  try {
+    await ensureAbstimmungenPollIdIndex();
+    console.log("Ensured index idx_poll_id on abstimmungen.poll_id");
+  } catch (err) {
+    console.error("Could not ensure idx_poll_id:", err);
+  }
+  app.listen(PORT, () => {
+    console.log(`API listening on port ${PORT}`);
+  });
+}
+
+void start();

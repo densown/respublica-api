@@ -27,6 +27,7 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `lobby_regulatory_projects` | neu (Regelungsvorhaben pro Lobbyeintrag) |
 | `urteile` | 578 |
 | `urteil_gesetze` | 866 |
+| `votes` | neu (Einzelstimmen pro `poll_id`/`mandate_id`) |
 | `wahlen` | 49 857 |
 | `world_indicators` | 249 781 |
 | `world_indicator_meta` | 51 |
@@ -82,6 +83,9 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | GET | `/api/bundestag/abgeordnete/:id` | Ein Abgeordneter (`aw_id`) |
 | GET | `/api/bundestag/abstimmungen` | Abstimmungen Übersicht |
 | GET | `/api/bundestag/abstimmungen/:pollId` | Abstimmung nach pollId |
+| GET | `/api/bundestag/poll-votes/:poll_id` | Einzelstimmen einer Abstimmung (`mandate_id` → `vote`) |
+| GET | `/api/abgeordnete` | Alle Abgeordneten (id, aw_id, Name, Fraktion, Wahlkreis, Foto, Profil) |
+| GET | `/api/abgeordnete/:aw_id/votes` | Abstimmungshistorie eines Abgeordneten |
 | GET | `/api/urteile` | Urteile Liste |
 | GET | `/api/urteile/:id` | Urteil Detail |
 | GET | `/api/eu-recht/stats` | Statistik EU-Rechtsakte |
@@ -123,6 +127,10 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 
 ## 5. Cronjobs (root, Stand 7. April 2026)
 
+## DB-Performance-Hinweis
+
+- Tabelle `abstimmungen`: zusätzlicher Index `idx_poll_id (poll_id)` für schnellere Detailabfragen und Join auf `votes`.
+
 | Zeit (UTC) | Skript | Beschreibung |
 |------------|--------|--------------|
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
@@ -150,7 +158,9 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 | `bundestag_gesetze_diffs.py` | Tages-Diffs aus Git-Repo als JSON |
 | `enrich_eu_urteile.py` | EU-Urteile anreichern (EUR-Lex, RDF, SPARQL) |
 | `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete` |
+| `fetch_abgeordnete_fotos.py` | Fehlende `foto_url`/`politiker_id` in `abgeordnete` per AW-API nachziehen |
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` |
+| `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes` |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
 | `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |
@@ -171,7 +181,7 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 
 ## 7. Logs
 
-Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyregister.log`; weitere Logdateien z. B. in `logs/` pro Skript.
+Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyregister.log`; Stimmen-Sync: `logs/fetch_votes.log`; Foto-Sync Abgeordnete: `logs/fetch_abgeordnete_fotos.log`; weitere Logdateien z. B. in `logs/` pro Skript.
 
 ---
 
