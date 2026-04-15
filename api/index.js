@@ -987,6 +987,91 @@ app.get("/api/lobbyregister/by-time", async (_req, res) => {
   }
 });
 
+app.get("/api/lobbyregister/:register_number/projects", async (req, res) => {
+  const registerNumber = String(req.params.register_number || "").trim();
+  if (!registerNumber) {
+    res.status(400).json({ error: "Ungültige register_number" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT *
+       FROM lobby_regulatory_projects
+       WHERE lobby_register_number = ?
+       ORDER BY updated_at DESC`,
+      [registerNumber],
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobby-projects/by-law", async (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+  if (!q || q.length < 2) {
+    res.json({ exact: [], related: [] });
+    return;
+  }
+  try {
+    const [exactRows] = await getPool().query(
+      `SELECT
+         lrp.id, lrp.title, lrp.project_number, lrp.description,
+         lrp.affected_laws, lrp.project_url, lrp.document_url,
+         lrp.leading_ministries,
+         l.register_number, l.name AS lobbyist_name,
+         l.financial_expenses_euro, l.city, l.legal_form
+       FROM lobby_regulatory_projects lrp
+       JOIN lobbyregister l ON l.register_number = lrp.lobby_register_number
+       WHERE JSON_SEARCH(lrp.affected_laws, 'one', ?) IS NOT NULL
+       ORDER BY l.financial_expenses_euro DESC
+       LIMIT 20`,
+      [q],
+    );
+
+    const [titleRows] = await getPool().query(
+      `SELECT
+         lrp.id, lrp.title, lrp.project_number, lrp.description,
+         lrp.affected_laws, lrp.project_url, lrp.document_url,
+         lrp.leading_ministries,
+         l.register_number, l.name AS lobbyist_name,
+         l.financial_expenses_euro, l.city, l.legal_form
+       FROM lobby_regulatory_projects lrp
+       JOIN lobbyregister l ON l.register_number = lrp.lobby_register_number
+       WHERE lrp.title LIKE ?
+         AND JSON_SEARCH(lrp.affected_laws, 'one', ?) IS NULL
+       ORDER BY l.financial_expenses_euro DESC
+       LIMIT 20`,
+      [`%${q}%`, q],
+    );
+
+    res.json({ exact: exactRows, related: titleRows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobby-projects/stats", async (_req, res) => {
+  try {
+    const [rows] = await getPool().query(
+      `SELECT title, project_number, COUNT(*) as lobby_count,
+              SUM(l.financial_expenses_euro) as total_lobby_budget
+       FROM lobby_regulatory_projects lrp
+       JOIN lobbyregister l ON l.register_number = lrp.lobby_register_number
+       WHERE lrp.project_number IS NOT NULL
+       GROUP BY title, project_number
+       ORDER BY lobby_count DESC
+       LIMIT 10`,
+    );
+    res.json({ items: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
 app.get("/api/lobbyregister/:register_number", async (req, res) => {
   const registerNumber = String(req.params.register_number || "").trim();
   if (!registerNumber) {

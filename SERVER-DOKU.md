@@ -24,6 +24,7 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `eu_urteil_rechtsakte` | 0 |
 | `gesetze` | 229 |
 | `lobbyregister` | neu (Befüllung via Script/Cron) |
+| `lobby_regulatory_projects` | neu (Regelungsvorhaben pro Lobbyeintrag) |
 | `urteile` | 578 |
 | `urteil_gesetze` | 866 |
 | `wahlen` | 49 857 |
@@ -94,7 +95,10 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | GET | `/api/lobbyregister/by-field` | Aggregierte Lobby-Ausgaben pro Interessensgebiet (Top 15) |
 | GET | `/api/lobbyregister/by-city` | Aggregierte Lobby-Kennzahlen pro Stadt (Top 50, nur aktiv) |
 | GET | `/api/lobbyregister/by-time` | Registrierungen pro Monat inkl. kumulierter Summe |
+| GET | `/api/lobbyregister/:register_number/projects` | Alle Gesetzesprojekte eines Lobbyeintrags (`lobby_regulatory_projects`) |
 | GET | `/api/lobbyregister/:register_number` | Lobby-Detail inkl. Tätigkeitsbeschreibung |
+| GET | `/api/lobby-projects/by-law` | Lobbyisten zu einem Gesetz (Suche via `q`, Top 20 nach Ausgaben) |
+| GET | `/api/lobby-projects/stats` | Top 10 meistkommentierte Gesetzesprojekte inkl. Lobbybudget |
 | GET | `/api/wahlen/types` | Wahlen-Typen |
 | GET | `/api/wahlen/years` | Jahre |
 | GET | `/api/wahlen/states` | Bundesländer |
@@ -149,7 +153,7 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
-| `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` (Upsert) |
+| `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |
 | `fetch_eu_urteile.py` | EU-Gerichte EuGH/EuG per SPARQL + Fallback |
 | `fetch_urteile.py` | RSS rechtsprechung-im-internet → `urteile` |
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |

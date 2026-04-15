@@ -49,6 +49,26 @@ CREATE TABLE IF NOT EXISTS lobbyregister (
 );
 """
 
+CREATE_REG_PROJECTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS lobby_regulatory_projects (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  lobby_register_number VARCHAR(20),
+  project_number VARCHAR(20),
+  title TEXT,
+  printing_number VARCHAR(50),
+  issuer VARCHAR(10),
+  document_url TEXT,
+  project_url TEXT,
+  description TEXT,
+  affected_laws JSON,
+  leading_ministries JSON,
+  fields_of_interest JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_lobby_project (lobby_register_number, project_number)
+);
+"""
+
 UPSERT_SQL = """
 INSERT INTO lobbyregister (
   register_number,
@@ -90,6 +110,19 @@ ON DUPLICATE KEY UPDATE
   details_url = VALUES(details_url),
   first_publication = VALUES(first_publication),
   last_update = VALUES(last_update);
+"""
+
+UPSERT_REG_PROJECT_SQL = """
+INSERT INTO lobby_regulatory_projects
+  (lobby_register_number, project_number, title, printing_number, issuer,
+   document_url, project_url, description, affected_laws, leading_ministries, fields_of_interest)
+VALUES
+  (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON DUPLICATE KEY UPDATE
+  title = VALUES(title),
+  description = VALUES(description),
+  affected_laws = VALUES(affected_laws),
+  updated_at = NOW();
 """
 
 
@@ -272,6 +305,50 @@ def row_from_item(item: dict[str, Any]) -> tuple[Any, ...] | None:
     )
 
 
+def upsert_regulatory_projects(cur: Any, item: dict[str, Any], register_number: str) -> None:
+    reg_projects = item.get('regulatoryProjects', {})
+    if not isinstance(reg_projects, dict):
+        return
+    projects = reg_projects.get('regulatoryProjects', [])
+    if not isinstance(projects, list):
+        return
+
+    for proj in projects:
+        if not isinstance(proj, dict):
+            continue
+        printed_matters = proj.get('printedMatters', [])
+        first_matter = printed_matters[0] if isinstance(printed_matters, list) and printed_matters else {}
+        if not isinstance(first_matter, dict):
+            first_matter = {}
+        draft_bill = proj.get('draftBill') if isinstance(proj.get('draftBill'), dict) else {}
+
+        affected_laws = json.dumps(proj.get('affectedLaws', []), ensure_ascii=False)
+
+        ministries = first_matter.get('leadingMinistries', [])
+        if (not ministries) and draft_bill:
+            ministries = draft_bill.get('leadingMinistries', [])
+
+        project_url = first_matter.get('projectUrl') or draft_bill.get('draftBillProjectUrl')
+        document_url = first_matter.get('documentUrl') or draft_bill.get('draftBillDocumentUrl')
+
+        cur.execute(
+            UPSERT_REG_PROJECT_SQL,
+            (
+                register_number,
+                proj.get('regulatoryProjectNumber'),
+                str(proj.get('title', '')).strip(),
+                first_matter.get('printingNumber'),
+                first_matter.get('issuer'),
+                document_url,
+                project_url,
+                str(proj.get('description', '')).strip(),
+                affected_laws,
+                json.dumps(ministries, ensure_ascii=False),
+                json.dumps(proj.get('fieldsOfInterest', []), ensure_ascii=False),
+            ),
+        )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description='Fetch Lobbyregister data and upsert into DB.')
     parser.add_argument(
@@ -299,6 +376,7 @@ def main() -> int:
 
     try:
         cur.execute(CREATE_TABLE_SQL)
+        cur.execute(CREATE_REG_PROJECTS_TABLE_SQL)
         db.commit()
 
         first = fetch_page(0)
@@ -330,6 +408,8 @@ def main() -> int:
                     if row is None:
                         continue
                     cur.execute(UPSERT_SQL, row)
+                    register_number = str(row[0])
+                    upsert_regulatory_projects(cur, item, register_number)
                     processed += 1
 
                 db.commit()
@@ -354,6 +434,8 @@ def main() -> int:
                     if row is None:
                         continue
                     cur.execute(UPSERT_SQL, row)
+                    register_number = str(row[0])
+                    upsert_regulatory_projects(cur, item, register_number)
                     processed += 1
 
                 db.commit()
