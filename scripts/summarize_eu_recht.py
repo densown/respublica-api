@@ -63,7 +63,7 @@ def main():
         '''
         SELECT id, titel_de
         FROM eu_rechtsakte
-        WHERE zusammenfassung IS NULL
+        WHERE zusammenfassung_de IS NULL
           AND titel_de IS NOT NULL
           AND TRIM(titel_de) != ''
         '''
@@ -81,7 +81,7 @@ def main():
             text = summarize_titel(titel_de)
             if text:
                 cur.execute(
-                    'UPDATE eu_rechtsakte SET zusammenfassung = %s WHERE id = %s',
+                    'UPDATE eu_rechtsakte SET zusammenfassung_de = %s WHERE id = %s',
                     (text, eid),
                 )
                 db.commit()

@@ -1,3 +1,9 @@
 # EU-Recht (Res.Publica gesetze) - Zeilen in /etc/crontab oder Server-Cron eintragen:
 # 0 7 * * * root cd /root/apps/gesetze && /usr/bin/python3 scripts/fetch_eu_recht.py >> logs/cron.log 2>&1
 # 15 7 * * * root cd /root/apps/gesetze && /usr/bin/python3 scripts/summarize_eu_recht.py >> logs/cron.log 2>&1
+#
+# News-Aggregator:
+# */30 * * * * root cd /root/respublica-api && /usr/bin/node modules/newsFetcher.js >> logs/cron.log 2>&1
+# 0 6 * * * root cd /root/respublica-api && /usr/bin/node modules/newsSummarizer.js >> logs/cron.log 2>&1
+# 0 7 * * * root /usr/bin/curl -fsS http://127.0.0.1:3002/api/news/briefing > /dev/null
+# 0 3 * * * root /usr/bin/mysql -h127.0.0.1 -u<DB_USER> -p<DB_PASSWORD> -D respublica_gesetze -e "DELETE FROM news_items WHERE published_at < DATE_SUB(NOW(), INTERVAL 30 DAY);" >> /root/respublica-api/logs/cron.log 2>&1

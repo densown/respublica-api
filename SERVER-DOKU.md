@@ -29,6 +29,7 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `urteil_gesetze` | 866 |
 | `votes` | neu (Einzelstimmen pro `poll_id`/`mandate_id`) |
 | `wahlen` | 49 857 |
+| `news_items` | neu (RSS-News inkl. Groq-Zusammenfassungen) |
 | `world_indicators` | 249 781 |
 | `world_indicator_meta` | 51 |
 
@@ -115,15 +116,21 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | GET | `/api/wahlen/national-average` | Bundesdurchschnitt |
 | GET | `/api/wahlen/stats` | Statistik |
 | GET | `/api/wahlen/region/:ags` | Region nach AGS |
-| GET | `/api/world/categories` | Indikator-Kategorien |
-| GET | `/api/world/indicators` | Indikatoren |
-| GET | `/api/world/map` | Weltkarte |
-| GET | `/api/world/country/:code` | Land |
-| GET | `/api/world/timeseries` | Zeitreihe |
-| GET | `/api/world/compare` | Vergleich |
-| GET | `/api/world/ranking` | Ranking |
-| GET | `/api/world/scatter` | Scatter |
-| GET | `/api/world/stats` | Statistik |
+| GET | `/api/world/categories` | Indikator-Kategorien (`data_indicators` + `world_indicator_meta` für Anzeige-Texte; optional `lang=de` oder `lang=en`, Default `en`) |
+| GET | `/api/world/indicators` | Indikatoren (wie oben) |
+| GET | `/api/world/map` | Weltkarte (`data_values` + `data_indicators`; Länder-/Aggregat-Felder wie zuvor aus `world_indicators` pro Zeile) |
+| GET | `/api/world/country/:code` | Land (Werte aus `data_values`; Kopfzeile wie zuvor erste Zeile aus `world_indicators`) |
+| GET | `/api/world/timeseries` | Zeitreihe (`data_values`) |
+| GET | `/api/world/compare` | Vergleich (`data_values` + `world_indicators` für `country_name` pro Jahr) |
+| GET | `/api/world/ranking` | Ranking (`data_values` + `world_indicators` für Namen) |
+| GET | `/api/world/scatter` | Scatter (wie Ranking/Map) |
+| GET | `/api/world/stats` | Statistik (`data_values`, `data_indicators`) |
+| GET | `/api/world/trade/:iso3` | Handel Top 10 (`trade_flows_v2`, `partner_name` = ISO3 wie bisher) |
+
+Hinweis: Die Tabellen `world_indicators`, `world_indicator_meta` und `trade_flows` bleiben als Referenz/Backup bestehen; die API liest Kennzahlen aus `data_values` / `data_indicators` / `trade_flows_v2`. SQL-Vorbereitung: `sql/2026-05-04-worldmap-api-prep.sql` (Indikator `EN.ATM.CO2E.PC` in `data_indicators`).
+| GET | `/api/news` | News-Liste mit Filter (category/lang/source/since), Pagination und Redis-Cache |
+| GET | `/api/news/sources` | Konfigurierte RSS-Quellen aus `config/news-sources.json` |
+| GET | `/api/news/briefing` | Tagesbriefing (Groq), Redis-Cache (1h) |
 
 ## 5. Cronjobs (root, Stand 7. April 2026)
 
@@ -144,6 +151,10 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | 06:45 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
 | 06:55 | `summarize_eu_urteile.py` | Groq-Zusammenfassungen EU-Urteile |
 | 05:30 | `fetch_lobbyregister.py` | Lobbyregister-Import (`sucheDetailJson`) → `lobbyregister` |
+| */30 | `node modules/newsFetcher.js` | RSS-Feeds einlesen, deduplizieren (`news_items`), Feed-Cache 15m |
+| 06:00 | `node modules/newsSummarizer.js` | Offene News der letzten 48h via Groq zusammenfassen (max. 50) |
+| 07:00 | `GET /api/news/briefing` | Briefing generieren und in Redis vorwärmen |
+| 03:00 | `DELETE news_items < 30 Tage` | Tägliche Bereinigung alter News |
 | */5 | `pm2 jlist` | Schreibt `/root/apps/gesetze/data/pm2-status.json` |
 
 Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpress.sh`.
@@ -178,6 +189,8 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 | `summarize_eu_urteile.py` | KI-Zusammenfassungen `eu_urteile` DE/EN (Groq) |
 | `summarize_gesetze.py` | Kurz-Zusammenfassungen `aenderungen` (Groq) |
 | `summarize_urteile.py` | Kurz-Zusammenfassungen Bundesgerichte (Groq) |
+| `modules/newsFetcher.js` | RSS-Aggregator: Feeds aus `config/news-sources.json` laden, speichern, deduplizieren |
+| `modules/newsSummarizer.js` | Groq-Summaries für aktuelle News (`news_items.groq_summary`) |
 
 ## 7. Logs
 
@@ -185,4 +198,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyreg
 
 ---
 
-**Zuletzt aktualisiert:** 15. April 2026
+**Zuletzt aktualisiert:** 4. Mai 2026

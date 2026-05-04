@@ -22,6 +22,8 @@ PROMPT_SUMMARY_DE = """Du bist ein juristischer Experte. Fasse das folgende EU-G
 Gericht: {gericht}
 Datum: {datum}
 Betreff: {betreff}
+Volltext:
+{fulltext}
 
 Zusammenfassung:"""
 
@@ -30,18 +32,24 @@ PROMPT_SUMMARY_EN = """You are a legal expert. Summarize the following EU court 
 Court: {gericht}
 Date: {datum}
 Subject: {betreff}
+Full text:
+{fulltext}
 
 Summary:"""
 
 PROMPT_IMPACT_DE = """Erkläre in exakt 1-2 Sätzen auf Deutsch die praktische Auswirkung dieses EU-Urteils. Verwende NUR die folgenden Informationen. Sage NIEMALS dass du keine Informationen hast.
 
 Gericht: {gericht}, Datum: {datum}, Betreff: {betreff}
+Volltext:
+{fulltext}
 
 Praktische Auswirkung:"""
 
 PROMPT_IMPACT_EN = """Explain in exactly 1-2 sentences in English the practical impact of this EU ruling. Use ONLY the information below. NEVER say you have no information.
 
 Court: {gericht}, Date: {datum}, Subject: {betreff}
+Full text:
+{fulltext}
 
 Practical impact:"""
 
@@ -112,9 +120,19 @@ def main():
 
     db = get_db()
     cur = db.cursor()
+    cur.execute("SHOW COLUMNS FROM eu_urteile")
+    available_cols = {row[0] for row in cur.fetchall()}
+    fulltext_candidates = [c for c in ("volltext", "text_de", "text_en") if c in available_cols]
+    if not fulltext_candidates:
+        log("Keine Volltext-Spalte in eu_urteile gefunden (volltext/text_de/text_en) - nichts zu summarizen.")
+        cur.close()
+        db.close()
+        return
+
+    fulltext_sql = ", ".join(fulltext_candidates)
     cur.execute(
-        '''
-        SELECT id, gericht, datum, betreff, leitsatz
+        f'''
+        SELECT id, gericht, datum, betreff, leitsatz, {fulltext_sql}
         FROM eu_urteile
         WHERE zusammenfassung_de IS NULL
         ORDER BY datum DESC, id DESC
@@ -125,17 +143,29 @@ def main():
         rows = rows[: args.limit]
     log(f'{len(rows)} Urteile zu verarbeiten')
 
-    for i, (uid, gericht, datum, betreff, _) in enumerate(rows):
+    for i, row in enumerate(rows):
+        uid, gericht, datum, betreff, _ = row[:5]
+        fulltext_values = row[5:]
         log(f'  [{i + 1}/{len(rows)}] id={uid}')
         try:
+            fulltext = ""
+            for ft in fulltext_values:
+                val = (ft or "").strip() if isinstance(ft, str) else ""
+                if val:
+                    fulltext = val
+                    break
+            if not fulltext:
+                log(f'  überspringe id={uid} (kein Volltext vorhanden)')
+                continue
+
             g = gericht or '—'
             d = str(datum) if datum else '—'
             b = (betreff or '').strip() or '—'
 
-            z_de = groq_chat(PROMPT_SUMMARY_DE.format(gericht=g, datum=d, betreff=b))
-            z_en = groq_chat(PROMPT_SUMMARY_EN.format(gericht=g, datum=d, betreff=b))
-            a_de = groq_chat(PROMPT_IMPACT_DE.format(gericht=g, datum=d, betreff=b))
-            a_en = groq_chat(PROMPT_IMPACT_EN.format(gericht=g, datum=d, betreff=b))
+            z_de = groq_chat(PROMPT_SUMMARY_DE.format(gericht=g, datum=d, betreff=b, fulltext=fulltext))
+            z_en = groq_chat(PROMPT_SUMMARY_EN.format(gericht=g, datum=d, betreff=b, fulltext=fulltext))
+            a_de = groq_chat(PROMPT_IMPACT_DE.format(gericht=g, datum=d, betreff=b, fulltext=fulltext))
+            a_en = groq_chat(PROMPT_IMPACT_EN.format(gericht=g, datum=d, betreff=b, fulltext=fulltext))
 
             if not all([z_de, z_en, a_de, a_en]):
                 log(f'  überspringe id={uid} (unvollständige Groq-Antwort)')

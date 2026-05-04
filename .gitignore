@@ -7,3 +7,18 @@ data/bundestag-gesetze/
 data/kmein-gesetze/
 .venv/
 data/pm2-status.json
+
+# Lokale Daten-Caches
+data/diffs/
+data/raw/
+*.log
+
+# Externe Submodules
+warera-explorer/
+
+# Migration-Scripts (nur lokal)
+scripts/migration/
+
+# Backup-Dateien
+*.sql.gz
+*.bak

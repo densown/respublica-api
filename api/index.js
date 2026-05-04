@@ -1,9 +1,15 @@
 "use strict";
 
 const path = require("path");
+const fs = require("fs/promises");
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+
+const { fetchAllNews } = require("../modules/newsFetcher");
+const { runNewsSummarizer } = require("../modules/newsSummarizer");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
@@ -11,6 +17,11 @@ const PORT = Number.parseInt(process.env.PORT || "3002", 10);
 const DB_NAME = process.env.DB_NAME || "respublica_gesetze";
 
 let pool;
+const execFileAsync = promisify(execFile);
+
+const REDIS_TTL_NEWS_LIST_SECONDS = 5 * 60;
+const REDIS_TTL_BRIEFING_SECONDS = 60 * 60;
+let newsSourcesCache = null;
 
 function getPool() {
   if (!pool) {
@@ -46,6 +57,91 @@ function formatDate(val) {
   if (val == null) return null;
   if (val instanceof Date) return val.toISOString().slice(0, 10);
   return String(val).slice(0, 10);
+}
+
+function formatDateTime(val) {
+  if (val == null) return null;
+  if (val instanceof Date) return val.toISOString();
+  const d = new Date(val);
+  return Number.isNaN(d.valueOf()) ? null : d.toISOString();
+}
+
+async function redisGet(key) {
+  try {
+    const { stdout } = await execFileAsync("redis-cli", ["GET", key], { timeout: 2500 });
+    const out = String(stdout || "").trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+async function redisSetEx(key, ttlSec, value) {
+  try {
+    await execFileAsync("redis-cli", ["SETEX", key, String(ttlSec), value], { timeout: 2500 });
+  } catch {
+    // Keep API functional if Redis is unavailable.
+  }
+}
+
+async function loadNewsSources() {
+  if (newsSourcesCache) return newsSourcesCache;
+  const cfgPath = path.join(__dirname, "..", "config", "news-sources.json");
+  const raw = await fs.readFile(cfgPath, "utf8");
+  newsSourcesCache = JSON.parse(raw);
+  return newsSourcesCache;
+}
+
+function flattenNewsSources(obj) {
+  const rows = [];
+  for (const [category, items] of Object.entries(obj)) {
+    for (const item of items) rows.push({ ...item, category });
+  }
+  return rows;
+}
+
+async function createNewsBriefing(items) {
+  const apiKey = process.env.GROQ_API_KEY;
+  const model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
+  if (!apiKey) throw new Error("GROQ_API_KEY missing");
+
+  const headlineLines = items.slice(0, 50).map((item) => {
+    const source = String(item.source_name || "Unbekannte Quelle").slice(0, 120);
+    const title = String(item.title || "").replace(/\s+/g, " ").trim().slice(0, 220);
+    return `[${source}]: [${title}]`;
+  });
+
+  const prompt =
+    "Du bist politischer Nachrichtenredakteur. Hier sind die aktuellsten Schlagzeilen der letzten 24 Stunden. " +
+    "Schreibe ein Briefing mit genau 5 Themen. Pro Thema: ein Satz. Kein Einleitungssatz. " +
+    "Keine Bullet-Points, keine Bindestriche, keine Aufzählungen. Fließtext. " +
+    "Fange direkt mit dem ersten Thema an. Wiederhole keine Information. " +
+    headlineLines.join("\n");
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      max_tokens: 500,
+      messages: [
+        { role: "system", content: "Schreibe kompakte, präzise News-Briefings auf Deutsch." },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Groq briefing failed ${response.status}: ${text}`);
+  }
+  const json = await response.json();
+  const content = json?.choices?.[0]?.message?.content?.trim();
+  if (!content) throw new Error("Empty briefing from Groq");
+  return content;
 }
 
 /** Aktuelle Sitzverteilung Bundestag, 21. Wahlperiode (fest codiert) */
@@ -1639,6 +1735,48 @@ function worldNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** World API: `lang=de`|`lang=en`, default `en` (legacy parity). */
+function worldLang(req) {
+  const v = String(req.query.lang || "").trim().toLowerCase();
+  return v === "de" ? "de" : "en";
+}
+function worldNameCol(lang) {
+  return lang === "de" ? "name_de" : "name_en";
+}
+function worldRegionCol(lang) {
+  return lang === "de" ? "region_de" : "region_en";
+}
+function worldUnitCol(lang) {
+  return lang === "de" ? "unit_de" : "unit_en";
+}
+/** Maps data_countries.income_level enum to legacy world_indicators strings. */
+function worldIncomeCaseSql(alias = "dc") {
+  return `CASE ${alias}.income_level
+    WHEN 'high' THEN 'High income'
+    WHEN 'upper_middle' THEN 'Upper middle income'
+    WHEN 'lower_middle' THEN 'Lower middle income'
+    WHEN 'low' THEN 'Low income'
+    WHEN 'aggregate' THEN 'Aggregates'
+    ELSE NULL
+  END`;
+}
+
+/** Join world_indicators row matching data_values (same indicator + year). */
+function worldWiDimNameSql(lang, dv = "dv", dc = "dc", wi = "wi") {
+  const dvRef = `${dv}.country_code`;
+  if (lang === "de") {
+    return `COALESCE(${dc}.\`name_de\`, ${wi}.country_name, ${dvRef})`;
+  }
+  return `COALESCE(${wi}.country_name, ${dc}.\`name_en\`, ${dvRef})`;
+}
+
+function worldWiDimRegionSql(lang, dc = "dc", wi = "wi") {
+  if (lang === "de") {
+    return `COALESCE(${dc}.\`region_de\`, ${wi}.region)`;
+  }
+  return `COALESCE(${wi}.region, ${dc}.\`region_en\`)`;
+}
+
 const WORLD_CATEGORY_LABELS = {
   economy: { label_de: "Wirtschaft", label_en: "Economy" },
   population: { label_de: "Bevölkerung", label_en: "Population" },
@@ -1651,15 +1789,25 @@ const WORLD_CATEGORY_LABELS = {
   technology: { label_de: "Technologie", label_en: "Technology" },
   trade: { label_de: "Handel", label_en: "Trade" },
   security: { label_de: "Sicherheit", label_en: "Security" },
+  democracy: { label_de: "Demokratie", label_en: "Democracy" },
 };
 
-app.get("/api/world/categories", async (_req, res) => {
+app.get("/api/world/categories", async (req, res) => {
   try {
+    const lang = worldLang(req);
+    const nameCol = worldNameCol(lang);
+    const unitCol = worldUnitCol(lang);
     const [rows] = await getPool().query(
-      `SELECT indicator_code, indicator_name, category, unit,
-              description_de, description_en
-       FROM world_indicator_meta
-       ORDER BY category, indicator_code`,
+      `SELECT di.code AS indicator_code,
+              COALESCE(wm.indicator_name, di.\`${nameCol}\`) AS indicator_name,
+              COALESCE(wm.category, di.category) AS category,
+              COALESCE(wm.unit, di.\`${unitCol}\`) AS unit,
+              COALESCE(wm.description_de, di.description_de) AS description_de,
+              COALESCE(wm.description_en, di.description_en) AS description_en
+       FROM data_indicators di
+       LEFT JOIN world_indicator_meta wm ON wm.indicator_code = di.code
+       WHERE di.is_active = 1
+       ORDER BY di.category, di.code`,
     );
     const byCat = new Map();
     for (const r of rows) {
@@ -1702,13 +1850,25 @@ app.get("/api/world/categories", async (_req, res) => {
   }
 });
 
-app.get("/api/world/indicators", async (_req, res) => {
+app.get("/api/world/indicators", async (req, res) => {
   try {
+    const lang = worldLang(req);
+    const nameCol = worldNameCol(lang);
+    const unitCol = worldUnitCol(lang);
     const [rows] = await getPool().query(
-      `SELECT indicator_code AS code, indicator_name AS name, category, unit,
-              description_de, description_en, source, source_url
-       FROM world_indicator_meta
-       ORDER BY category, indicator_code`,
+      `SELECT di.code,
+              COALESCE(wm.indicator_name, di.\`${nameCol}\`) AS name,
+              COALESCE(wm.category, di.category) AS category,
+              COALESCE(wm.unit, di.\`${unitCol}\`) AS unit,
+              COALESCE(wm.description_de, di.description_de) AS description_de,
+              COALESCE(wm.description_en, di.description_en) AS description_en,
+              COALESCE(wm.source, ds.name) AS source,
+              COALESCE(wm.source_url, ds.url) AS source_url
+       FROM data_indicators di
+       LEFT JOIN world_indicator_meta wm ON wm.indicator_code = di.code
+       LEFT JOIN data_sources ds ON ds.id = di.source_id
+       WHERE di.is_active = 1
+       ORDER BY di.category, di.code`,
     );
     res.json(rows);
   } catch (err) {
@@ -1729,10 +1889,24 @@ app.get("/api/world/map", async (req, res) => {
     return;
   }
   try {
+    const lang = worldLang(req);
+    const incomeSql = worldIncomeCaseSql("dc");
+    const nameSql = worldWiDimNameSql(lang, "dv", "dc", "wi");
+    const regionSql = worldWiDimRegionSql(lang, "dc", "wi");
     const [rows] = await getPool().query(
-      `SELECT country_code, country_name, value, region, income_level
-       FROM world_indicators
-       WHERE indicator_code = ? AND year = ? AND value IS NOT NULL`,
+      `SELECT dv.country_code,
+              ${nameSql} AS country_name,
+              dv.value,
+              ${regionSql} AS region,
+              COALESCE(wi.income_level, ${incomeSql}) AS income_level
+       FROM data_values dv
+       INNER JOIN data_indicators di ON di.id = dv.indicator_id AND di.code = ?
+       LEFT JOIN data_countries dc ON dc.iso3 = dv.country_code
+       LEFT JOIN world_indicators wi
+         ON wi.country_code = dv.country_code
+        AND wi.indicator_code = di.code
+        AND wi.year = dv.year
+       WHERE dv.year = ? AND dv.value IS NOT NULL`,
       [indicator, year],
     );
     res.json(
@@ -1760,27 +1934,81 @@ app.get("/api/world/country/:code", async (req, res) => {
     return;
   }
   try {
-    const [[meta]] = await getPool().query(
-      `SELECT DISTINCT country_code, country_name, region, income_level
+    const lang = worldLang(req);
+    const nameCol = worldNameCol(lang);
+    const regionCol = worldRegionCol(lang);
+    const incomeSql = worldIncomeCaseSql("dc");
+    const pool = getPool();
+
+    const [[hasValues]] = await pool.query(
+      `SELECT 1 AS ok FROM data_values WHERE country_code = ? LIMIT 1`,
+      [code],
+    );
+    if (!hasValues?.ok) {
+      res.status(404).json({ error: "Nicht gefunden" });
+      return;
+    }
+
+    const [[wiMeta]] = await pool.query(
+      `SELECT country_code, country_name, region, income_level
        FROM world_indicators
        WHERE country_code = ?
        LIMIT 1`,
       [code],
     );
-    if (!meta) {
-      res.status(404).json({ error: "Nicht gefunden" });
-      return;
+    let resolvedMeta;
+    if (wiMeta?.country_code) {
+      resolvedMeta = {
+        country_code: wiMeta.country_code,
+        country_name: wiMeta.country_name,
+        region: wiMeta.region,
+        income_level: wiMeta.income_level,
+      };
+    } else {
+      const [[dcMeta]] = await pool.query(
+        `SELECT iso3 AS country_code,
+                dc.\`${nameCol}\` AS country_name,
+                dc.\`${regionCol}\` AS region,
+                ${incomeSql} AS income_level
+         FROM data_countries dc
+         WHERE dc.iso3 = ?
+         LIMIT 1`,
+        [code],
+      );
+      resolvedMeta =
+        dcMeta && dcMeta.country_code
+          ? {
+              country_code: dcMeta.country_code,
+              country_name: dcMeta.country_name,
+              region: dcMeta.region,
+              income_level: dcMeta.income_level,
+            }
+          : {
+              country_code: code,
+              country_name: code,
+              region: null,
+              income_level: null,
+            };
     }
-    const [dataRows] = await getPool().query(
-      `SELECT indicator_code, year, value
-       FROM world_indicators
-       WHERE country_code = ?
-       ORDER BY indicator_code, year ASC`,
+
+    const [dataRows] = await pool.query(
+      `SELECT di.code AS indicator_code,
+              dv.year,
+              dv.value
+       FROM data_values dv
+       INNER JOIN data_indicators di ON di.id = dv.indicator_id
+       WHERE dv.country_code = ?
+       ORDER BY di.code, dv.year ASC`,
       [code],
     );
-    const [metaRows] = await getPool().query(
-      `SELECT indicator_code, indicator_name, category
-       FROM world_indicator_meta`,
+
+    const [metaRows] = await pool.query(
+      `SELECT di.code AS indicator_code,
+              COALESCE(wm.indicator_name, di.\`${nameCol}\`) AS indicator_name,
+              COALESCE(wm.category, di.category) AS category
+       FROM data_indicators di
+       LEFT JOIN world_indicator_meta wm ON wm.indicator_code = di.code
+       WHERE di.is_active = 1`,
     );
     const metaByCode = new Map(
       metaRows.map((m) => [m.indicator_code, m]),
@@ -1808,10 +2036,10 @@ app.get("/api/world/country/:code", async (req, res) => {
       a.indicator_code.localeCompare(b.indicator_code),
     );
     res.json({
-      country_code: meta.country_code,
-      country_name: meta.country_name,
-      region: meta.region,
-      income_level: meta.income_level,
+      country_code: resolvedMeta.country_code,
+      country_name: resolvedMeta.country_name,
+      region: resolvedMeta.region,
+      income_level: resolvedMeta.income_level,
       indicators,
     });
   } catch (err) {
@@ -1832,11 +2060,12 @@ app.get("/api/world/timeseries", async (req, res) => {
   }
   try {
     const [rows] = await getPool().query(
-      `SELECT year, value
-       FROM world_indicators
-       WHERE country_code = ? AND indicator_code = ?
-       ORDER BY year ASC`,
-      [country, indicator],
+      `SELECT dv.year, dv.value
+       FROM data_values dv
+       INNER JOIN data_indicators di ON di.id = dv.indicator_id AND di.code = ?
+       WHERE dv.country_code = ?
+       ORDER BY dv.year ASC`,
+      [indicator, country],
     );
     res.json(
       rows.map((r) => ({
@@ -1867,12 +2096,23 @@ app.get("/api/world/compare", async (req, res) => {
   }
   const uniq = [...new Set(codes)];
   try {
+    const lang = worldLang(req);
+    const nameSql = worldWiDimNameSql(lang, "dv", "dc", "wi");
     const ph = uniq.map(() => "?").join(",");
     const [rows] = await getPool().query(
-      `SELECT country_code, country_name, year, value
-       FROM world_indicators
-       WHERE indicator_code = ? AND country_code IN (${ph})
-       ORDER BY country_code, year ASC`,
+      `SELECT dv.country_code,
+              ${nameSql} AS country_name,
+              dv.year,
+              dv.value
+       FROM data_values dv
+       INNER JOIN data_indicators di ON di.id = dv.indicator_id AND di.code = ?
+       LEFT JOIN data_countries dc ON dc.iso3 = dv.country_code
+       LEFT JOIN world_indicators wi
+         ON wi.country_code = dv.country_code
+        AND wi.indicator_code = di.code
+        AND wi.year = dv.year
+       WHERE dv.country_code IN (${ph})
+       ORDER BY dv.country_code, dv.year ASC`,
       [indicator, ...uniq],
     );
     const byCountry = new Map();
@@ -1913,11 +2153,21 @@ app.get("/api/world/ranking", async (req, res) => {
   if (!Number.isFinite(limit) || limit < 1) limit = 2500;
   if (limit > 5000) limit = 5000;
   try {
+    const lang = worldLang(req);
+    const nameSql = worldWiDimNameSql(lang, "dv", "dc", "wi");
     const [rows] = await getPool().query(
-      `SELECT country_code, country_name, value
-       FROM world_indicators
-       WHERE indicator_code = ? AND year = ? AND value IS NOT NULL
-       ORDER BY value ${order}, country_code ASC
+      `SELECT dv.country_code,
+              ${nameSql} AS country_name,
+              dv.value
+       FROM data_values dv
+       INNER JOIN data_indicators di ON di.id = dv.indicator_id AND di.code = ?
+       LEFT JOIN data_countries dc ON dc.iso3 = dv.country_code
+       LEFT JOIN world_indicators wi
+         ON wi.country_code = dv.country_code
+        AND wi.indicator_code = di.code
+        AND wi.year = dv.year
+       WHERE dv.year = ? AND dv.value IS NOT NULL
+       ORDER BY dv.value ${order}, dv.country_code ASC
        LIMIT ?`,
       [indicator, year, limit],
     );
@@ -1943,14 +2193,27 @@ app.get("/api/world/scatter", async (req, res) => {
     return;
   }
   try {
+    const lang = worldLang(req);
+    const nameSql = worldWiDimNameSql(lang, "a", "dc", "wi");
+    const regionSql = worldWiDimRegionSql(lang, "dc", "wi");
     const [rows] = await getPool().query(
-      `SELECT a.country_code, a.country_name, a.region,
+      `SELECT a.country_code,
+              ${nameSql} AS country_name,
+              ${regionSql} AS region,
               a.value AS x, b.value AS y
-       FROM world_indicators a
-       INNER JOIN world_indicators b
-         ON a.country_code = b.country_code AND a.year = b.year
-       WHERE a.indicator_code = ? AND b.indicator_code = ?
-         AND a.year = ?
+       FROM data_values a
+       INNER JOIN data_indicators dix
+         ON dix.id = a.indicator_id AND dix.code = ?
+       INNER JOIN data_values b
+         ON b.country_code = a.country_code AND b.year = a.year
+       INNER JOIN data_indicators diy
+         ON diy.id = b.indicator_id AND diy.code = ?
+       LEFT JOIN data_countries dc ON dc.iso3 = a.country_code
+       LEFT JOIN world_indicators wi
+         ON wi.country_code = a.country_code
+        AND wi.indicator_code = dix.code
+        AND wi.year = a.year
+       WHERE a.year = ?
          AND a.value IS NOT NULL AND b.value IS NOT NULL`,
       [xCode, yCode, year],
     );
@@ -1973,16 +2236,16 @@ app.get("/api/world/stats", async (_req, res) => {
   try {
     const pool = getPool();
     const [[{ total_records }]] = await pool.query(
-      "SELECT COUNT(*) AS total_records FROM world_indicators",
+      "SELECT COUNT(*) AS total_records FROM data_values",
     );
     const [[{ countries }]] = await pool.query(
-      "SELECT COUNT(DISTINCT country_code) AS countries FROM world_indicators",
+      "SELECT COUNT(DISTINCT country_code) AS countries FROM data_values",
     );
     const [[{ indicators }]] = await pool.query(
-      "SELECT COUNT(*) AS indicators FROM world_indicator_meta",
+      "SELECT COUNT(*) AS indicators FROM data_indicators WHERE is_active = 1",
     );
     const [[yr]] = await pool.query(
-      "SELECT MIN(year) AS y_min, MAX(year) AS y_max FROM world_indicators",
+      "SELECT MIN(year) AS y_min, MAX(year) AS y_max FROM data_values",
     );
     res.json({
       total_records: Number(total_records) || 0,
@@ -1996,6 +2259,182 @@ app.get("/api/world/stats", async (_req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/world/trade/:iso3", async (req, res) => {
+  const iso3 = String(req.params.iso3 || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 3);
+  const year = Number.parseInt(String(req.query.year || ""), 10) || 2023;
+  if (!iso3 || iso3.length !== 3) {
+    res.status(400).json({ error: "Ungültiger ISO3-Code" });
+    return;
+  }
+  try {
+    const pool = getPool();
+    const [exportsRows] = await pool.query(
+      `SELECT t.partner_iso3 AS partner_code,
+              t.partner_iso3 AS partner_name,
+              t.value_usd
+       FROM trade_flows_v2 t
+       WHERE t.reporter_iso3 = ? AND t.flow = 'export' AND t.year = ?
+         AND t.hs_section = 'TOTAL'
+       ORDER BY t.value_usd DESC
+       LIMIT 10`,
+      [iso3, year],
+    );
+    const [importsRows] = await pool.query(
+      `SELECT t.partner_iso3 AS partner_code,
+              t.partner_iso3 AS partner_name,
+              t.value_usd
+       FROM trade_flows_v2 t
+       WHERE t.reporter_iso3 = ? AND t.flow = 'import' AND t.year = ?
+         AND t.hs_section = 'TOTAL'
+       ORDER BY t.value_usd DESC
+       LIMIT 10`,
+      [iso3, year],
+    );
+    const [[totals]] = await pool.query(
+      `SELECT
+        SUM(CASE WHEN flow='export' THEN value_usd ELSE 0 END) AS total_export,
+        SUM(CASE WHEN flow='import' THEN value_usd ELSE 0 END) AS total_import
+       FROM trade_flows_v2
+       WHERE reporter_iso3 = ? AND year = ? AND hs_section = 'TOTAL'`,
+      [iso3, year],
+    );
+    res.json({
+      iso3,
+      year,
+      total_export_usd: totals.total_export,
+      total_import_usd: totals.total_import,
+      top_exports: exportsRows,
+      top_imports: importsRows,
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/news", async (req, res) => {
+  try {
+    const category = String(req.query.category || "").trim();
+    const lang = String(req.query.lang || "").trim();
+    const source = String(req.query.source || "").trim();
+    const since = String(req.query.since || "").trim();
+
+    let limit = Number.parseInt(String(req.query.limit ?? "50"), 10);
+    let offset = Number.parseInt(String(req.query.offset ?? "0"), 10);
+    if (!Number.isFinite(limit) || limit < 1) limit = 50;
+    if (limit > 200) limit = 200;
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+    const cacheKey = `news:${category || "*"}:${lang || "*"}:${source || "*"}:${since || "*"}:${limit}:${offset}`;
+    const cached = await redisGet(cacheKey);
+    if (cached) {
+      res.type("application/json").send(cached);
+      return;
+    }
+
+    let where = "WHERE 1=1";
+    const params = [];
+    if (category) {
+      where += " AND category = ?";
+      params.push(category);
+    }
+    if (lang) {
+      where += " AND language = ?";
+      params.push(lang);
+    }
+    if (source) {
+      where += " AND source_key = ?";
+      params.push(source);
+    }
+    if (since) {
+      where += " AND published_at >= ?";
+      params.push(since);
+    }
+
+    const db = getPool();
+    const [[countRow]] = await db.query(
+      `SELECT COUNT(*) AS total FROM news_items ${where}`,
+      params
+    );
+    const [rows] = await db.query(
+      `SELECT id, guid, title, description, content, url, published_at, fetched_at,
+              source_key, source_name, category, language, groq_summary, summarized_at
+       FROM news_items
+       ${where}
+       ORDER BY published_at DESC, id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+    const [catRows] = await db.query(
+      "SELECT DISTINCT category FROM news_items WHERE category IS NOT NULL ORDER BY category ASC"
+    );
+
+    const payload = {
+      items: rows.map((r) => ({
+        ...r,
+        published_at: formatDateTime(r.published_at),
+        fetched_at: formatDateTime(r.fetched_at),
+        summarized_at: formatDateTime(r.summarized_at),
+      })),
+      total: Number(countRow?.total) || 0,
+      categories: catRows.map((r) => r.category),
+      fetched_at: new Date().toISOString(),
+    };
+
+    const serialized = JSON.stringify(payload);
+    await redisSetEx(cacheKey, REDIS_TTL_NEWS_LIST_SECONDS, serialized);
+    res.type("application/json").send(serialized);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/news/sources", async (_req, res) => {
+  try {
+    const cfg = await loadNewsSources();
+    res.json(cfg);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Konfigurationsfehler" });
+  }
+});
+
+app.get("/api/news/briefing", async (_req, res) => {
+  try {
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const cacheKey = `news:briefing:${dateKey}`;
+    const cached = await redisGet(cacheKey);
+    if (cached) {
+      res.type("application/json").send(cached);
+      return;
+    }
+
+    const [rows] = await getPool().query(
+      `SELECT title, source_name, published_at
+       FROM news_items
+       WHERE published_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+       ORDER BY published_at DESC
+       LIMIT 50`
+    );
+    const briefing = await createNewsBriefing(rows);
+    const payload = {
+      briefing,
+      generated_at: new Date().toISOString(),
+      items_count: rows.length,
+    };
+    const serialized = JSON.stringify(payload);
+    await redisSetEx(cacheKey, REDIS_TTL_BRIEFING_SECONDS, serialized);
+    res.type("application/json").send(serialized);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Briefing-Fehler" });
   }
 });
 

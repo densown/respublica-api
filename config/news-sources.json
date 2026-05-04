@@ -1,0 +1,72 @@
+{
+  "de-oeffentlichrechtlich": [
+    { "label": "Tagesschau", "url": "https://www.tagesschau.de/xml/rss2", "lang": "de" },
+    { "label": "ZDF heute", "url": "https://www.zdf.de/rss/zdf/nachrichten", "lang": "de" },
+    { "label": "Deutschlandfunk", "url": "https://www.deutschlandfunk.de/nachrichten-100.rss", "lang": "de" },
+    { "label": "BR24", "url": "https://www.br.de/nachrichten/rss/meldungen.rss", "lang": "de" },
+    { "label": "WDR Nachrichten", "url": "https://www1.wdr.de/nachrichten/index~rss2.xml", "lang": "de" },
+    { "label": "NDR Nachrichten", "url": "https://www.ndr.de/nachrichten/index-rss.xml", "lang": "de" }
+  ],
+  "de-qualitaetspresse": [
+    { "label": "Zeit Online", "url": "https://newsfeed.zeit.de/politik/index", "lang": "de" },
+    { "label": "Süddeutsche Zeitung", "url": "https://rss.sueddeutsche.de/rss/Politik", "lang": "de" },
+    { "label": "FAZ", "url": "https://www.faz.net/rss/aktuell/politik/", "lang": "de" },
+    { "label": "Spiegel Politik", "url": "https://www.spiegel.de/politik/index.rss", "lang": "de" },
+    { "label": "Tagesspiegel", "url": "https://www.tagesspiegel.de/politik/feed/", "lang": "de" },
+    { "label": "Handelsblatt", "url": "https://www.handelsblatt.com/contentexport/feed/politik", "lang": "de" },
+    { "label": "taz", "url": "https://taz.de/!p4608;rss/", "lang": "de" }
+  ],
+  "de-investigativ": [
+    { "label": "Correctiv", "url": "https://correctiv.org/feed/", "lang": "de" },
+    { "label": "FragDenStaat", "url": "https://fragdenstaat.de/api/v1/feed/", "lang": "de" },
+    { "label": "Netzpolitik", "url": "https://netzpolitik.org/feed/", "lang": "de" }
+  ],
+  "de-institutionell": [
+    { "label": "Bundestag", "url": "https://www.bundestag.de/rss/pressemitteilungen", "lang": "de" },
+    { "label": "Bundesrat", "url": "https://www.bundesrat.de/SiteGlobals/Functions/RSSFeed/RSSNewsfeed/RSSNewsfeed.xml", "lang": "de" },
+    { "label": "Bundesregierung", "url": "https://www.bundesregierung.de/breg-de/aktuelles/rss-nachrichten-und-interviews", "lang": "de" },
+    { "label": "Bundeswahlleiter", "url": "https://www.bundeswahlleiter.de/info/presse/mitteilungen.rss.html", "lang": "de" },
+    { "label": "BMF", "url": "https://www.bundesfinanzministerium.de/SiteGlobals/Functions/RSSFeed/RSSNewsfeed/RSSNewsfeed.xml", "lang": "de" },
+    { "label": "BMI", "url": "https://www.bmi.bund.de/SiteGlobals/Functions/RSSFeed/RSSNewsfeed/RSSNewsfeed.xml", "lang": "de" }
+  ],
+  "de-thinktanks": [
+    { "label": "SWP", "url": "https://www.swp-berlin.org/publications/rss", "lang": "de" },
+    { "label": "ifo Institut", "url": "https://www.ifo.de/rss-nachrichten", "lang": "de" },
+    { "label": "DIW Berlin", "url": "https://www.diw.de/de/diw_01.c.rss.de/nachrichten.xml", "lang": "de" },
+    { "label": "Bertelsmann Stiftung", "url": "https://www.bertelsmann-stiftung.de/de/presse/rss", "lang": "de" }
+  ],
+  "us-qualitaetspresse": [
+    { "label": "New York Times World", "url": "https://rss.nytimes.com/services/xml/rss/nyt/World.xml", "lang": "en" },
+    { "label": "Washington Post World", "url": "https://feeds.washingtonpost.com/rss/world", "lang": "en" },
+    { "label": "NPR News", "url": "https://feeds.npr.org/1001/rss.xml", "lang": "en" },
+    { "label": "The Atlantic", "url": "https://www.theatlantic.com/feed/all/", "lang": "en" },
+    { "label": "ProPublica", "url": "https://feeds.propublica.org/propublica/main", "lang": "en" },
+    { "label": "Foreign Affairs", "url": "https://www.foreignaffairs.com/rss.xml", "lang": "en" }
+  ],
+  "geopolitik": [
+    { "label": "Foreign Policy", "url": "https://foreignpolicy.com/feed/", "lang": "en" },
+    { "label": "CFR", "url": "https://www.cfr.org/rss/publications_feed.xml", "lang": "en" },
+    { "label": "Chatham House", "url": "https://www.chathamhouse.org/rss.xml", "lang": "en" },
+    { "label": "ECFR", "url": "https://ecfr.eu/feed/", "lang": "en" },
+    { "label": "Bellingcat", "url": "https://www.bellingcat.com/feed/", "lang": "en" },
+    { "label": "War on the Rocks", "url": "https://warontherocks.com/feed/", "lang": "en" },
+    { "label": "The Diplomat", "url": "https://thediplomat.com/feed/", "lang": "en" },
+    { "label": "Middle East Eye", "url": "https://www.middleeasteye.net/rss", "lang": "en" },
+    { "label": "RAND", "url": "https://www.rand.org/pubs/rss/all.xml", "lang": "en" },
+    { "label": "Brookings", "url": "https://www.brookings.edu/feed/", "lang": "en" }
+  ],
+  "eu-europa": [
+    { "label": "Politico Europe", "url": "https://www.politico.eu/feed/", "lang": "en" },
+    { "label": "EuObserver", "url": "https://euobserver.com/rss.xml", "lang": "en" },
+    { "label": "Euractiv", "url": "https://www.euractiv.com/feed/", "lang": "en" },
+    { "label": "Europaparlament", "url": "https://www.europarl.europa.eu/rss/doc/press-release/en", "lang": "en" }
+  ],
+  "worldnews": [
+    { "label": "Reuters", "url": "https://feeds.reuters.com/reuters/topNews", "lang": "en" },
+    { "label": "AP News", "url": "https://rsshub.app/apnews/topics/ap-top-news", "lang": "en" },
+    { "label": "BBC World", "url": "http://feeds.bbci.co.uk/news/world/rss.xml", "lang": "en" },
+    { "label": "Al Jazeera", "url": "https://www.aljazeera.com/xml/rss/all.xml", "lang": "en" },
+    { "label": "DW English", "url": "https://rss.dw.com/rdf/rss-en-all", "lang": "en" },
+    { "label": "The Guardian World", "url": "https://www.theguardian.com/world/rss", "lang": "en" }
+  ]
+}
