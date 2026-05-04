@@ -22,3 +22,6 @@ scripts/migration/
 # Backup-Dateien
 *.sql.gz
 *.bak
+data/baci/
+data/raw/
+data/raw/
