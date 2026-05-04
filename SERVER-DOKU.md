@@ -125,10 +125,12 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | GET | `/api/world/ranking` | Ranking (`data_values` + `world_indicators` für Namen) |
 | GET | `/api/world/scatter` | Scatter (wie Ranking/Map) |
 | GET | `/api/world/stats` | Statistik (`data_values`, `data_indicators`) |
-| GET | `/api/world/trade/:iso3` | Handel Top 10 (`trade_flows_v2` + `data_countries`, `partner_name` lokalisiert via `lang=de|en` statt ISO3-Code); optional `?breakdown=sections` liefert zusätzlich `sections_export`/`sections_import` |
+| GET | `/api/world/sources` | Alle Zeilen aus `data_sources` mit `indicator_count` (distinct `data_indicators`), `value_count` = Zeilen in `data_values` über zugehörige Indikatoren plus Zeilen in `trade_flows_v2` mit gleicher `source_id` (für CEPII BACI); Feld `domain` u. a. `worldmap` für bekannte Slugs (`worldbank_wdi`, `vdem`, …, `cepii_baci_hs17`) |
+| GET | `/api/world/trade/:iso3` | Handel Top 10 (`trade_flows_v2` + `data_countries`, `partner_name` lokalisiert via `lang=de|en` statt ISO3-Code); optional `?breakdown=sections` liefert zusätzlich `sections_export`/`sections_import`, optional `&partner=ISO3` filtert diese Sections auf ein Reporter-Partner-Landpaar |
 | GET | `/api/world/trade/:iso3/timeseries` | Handels-Zeitreihe je Jahr (Exports/Imports aus `hs_section='TOTAL'`, Query `yearMin`, `yearMax`) |
 
 Hinweis: Die Tabellen `world_indicators`, `world_indicator_meta` und `trade_flows` bleiben als Referenz/Backup bestehen; die API liest Kennzahlen aus `data_values` / `data_indicators` / `trade_flows_v2`. SQL-Vorbereitung: `sql/2026-05-04-worldmap-api-prep.sql` (Indikator `EN.ATM.CO2E.PC`, `data_update_log.context` als JSON, neue Datenquelle `cepii_baci_hs17`).
+
 | GET | `/api/news` | News-Liste mit Filter (category/lang/source/since), Pagination und Redis-Cache |
 | GET | `/api/news/sources` | Konfigurierte RSS-Quellen aus `config/news-sources.json` |
 | GET | `/api/news/briefing` | Tagesbriefing (Groq), Redis-Cache (1h) |
@@ -200,4 +202,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyreg
 
 ---
 
-**Zuletzt aktualisiert:** 4. Mai 2026 (Trade-API: lokalisierte Partnernamen via `data_countries`)
+**Zuletzt aktualisiert:** 4. Mai 2026 (`GET /api/world/sources`: Metadaten und Nutzungszähler pro `data_sources`; World-Trade optional `partner=ISO3` für HS-Section-Breakdown)

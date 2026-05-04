@@ -2232,6 +2232,85 @@ app.get("/api/world/scatter", async (req, res) => {
   }
 });
 
+const WORLDMAP_SOURCE_SLUGS = new Set([
+  "worldbank_wdi",
+  "vdem",
+  "sipri",
+  "rsf",
+  "oecd",
+  "imf_weo",
+  "freedomhouse",
+  "un_hdr",
+  "un_comtrade",
+  "yale_epi",
+  "cepii_baci_hs17",
+]);
+
+function dataSourceDomain(slug) {
+  return WORLDMAP_SOURCE_SLUGS.has(String(slug || "").trim())
+    ? "worldmap"
+    : "other";
+}
+
+function isoOrNull(v) {
+  if (v == null) return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) {
+    return v.toISOString();
+  }
+  const s = String(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (!Number.isNaN(d.getTime())) return d.toISOString();
+  return s;
+}
+
+app.get("/api/world/sources", async (_req, res) => {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT s.id,
+              s.slug,
+              s.name,
+              s.provider,
+              s.url,
+              s.license,
+              s.update_freq,
+              s.last_fetched,
+              (SELECT COUNT(DISTINCT i.id)
+               FROM data_indicators i
+               WHERE i.source_id = s.id) AS indicator_count,
+              COALESCE(
+                (SELECT COUNT(*)
+                 FROM data_values v
+                 INNER JOIN data_indicators i ON i.id = v.indicator_id
+                 WHERE i.source_id = s.id),
+                0
+              ) + COALESCE(
+                (SELECT COUNT(*) FROM trade_flows_v2 t WHERE t.source_id = s.id),
+                0
+              ) AS value_count
+       FROM data_sources s
+       ORDER BY s.id`,
+    );
+    const sources = rows.map((r) => ({
+      slug: r.slug,
+      name: r.name,
+      provider: r.provider ?? null,
+      url: r.url ?? null,
+      license: r.license ?? null,
+      update_freq: r.update_freq ?? null,
+      last_fetched: isoOrNull(r.last_fetched),
+      domain: dataSourceDomain(r.slug),
+      indicator_count: Number(r.indicator_count) || 0,
+      value_count: Number(r.value_count) || 0,
+    }));
+    res.json({ sources });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
 app.get("/api/world/stats", async (_req, res) => {
   try {
     const pool = getPool();
@@ -2271,8 +2350,16 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
   const partnerNameCol = worldNameCol(lang);
   const year = Number.parseInt(String(req.query.year || ""), 10) || 2023;
   const includeSections = String(req.query.breakdown || "").trim() === "sections";
+  const partnerRaw = String(req.query.partner || "")
+    .trim()
+    .toUpperCase();
+  const partner = partnerRaw ? partnerRaw.slice(0, 3) : null;
   if (!iso3 || iso3.length !== 3) {
     res.status(400).json({ error: "Ungültiger ISO3-Code" });
+    return;
+  }
+  if (partnerRaw && partnerRaw.length !== 3) {
+    res.status(400).json({ error: "Ungültiger Partner-ISO3-Code" });
     return;
   }
   try {
@@ -2323,9 +2410,10 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
         `SELECT flow, hs_section, SUM(value_usd) AS value_usd
          FROM trade_flows_v2
          WHERE reporter_iso3 = ? AND year = ? AND hs_section <> 'TOTAL'
+           AND (? IS NULL OR partner_iso3 = ?)
          GROUP BY flow, hs_section
          ORDER BY flow ASC, value_usd DESC`,
-        [iso3, year],
+        [iso3, year, partner, partner],
       );
       payload.sections_export = sectionRows.filter((r) => r.flow === "export");
       payload.sections_import = sectionRows.filter((r) => r.flow === "import");
