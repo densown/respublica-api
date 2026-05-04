@@ -125,9 +125,9 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 | GET | `/api/world/ranking` | Ranking (`data_values` + `world_indicators` für Namen) |
 | GET | `/api/world/scatter` | Scatter (wie Ranking/Map) |
 | GET | `/api/world/stats` | Statistik (`data_values`, `data_indicators`) |
-| GET | `/api/world/trade/:iso3` | Handel Top 10 (`trade_flows_v2`, `partner_name` = ISO3 wie bisher) |
+| GET | `/api/world/trade/:iso3` | Handel Top 10 (`trade_flows_v2`, `partner_name` = ISO3 wie bisher); optional `?breakdown=sections` liefert zusätzlich `sections_export`/`sections_import` |
 
-Hinweis: Die Tabellen `world_indicators`, `world_indicator_meta` und `trade_flows` bleiben als Referenz/Backup bestehen; die API liest Kennzahlen aus `data_values` / `data_indicators` / `trade_flows_v2`. SQL-Vorbereitung: `sql/2026-05-04-worldmap-api-prep.sql` (Indikator `EN.ATM.CO2E.PC` in `data_indicators`).
+Hinweis: Die Tabellen `world_indicators`, `world_indicator_meta` und `trade_flows` bleiben als Referenz/Backup bestehen; die API liest Kennzahlen aus `data_values` / `data_indicators` / `trade_flows_v2`. SQL-Vorbereitung: `sql/2026-05-04-worldmap-api-prep.sql` (Indikator `EN.ATM.CO2E.PC`, `data_update_log.context` als JSON, neue Datenquelle `cepii_baci_hs17`).
 | GET | `/api/news` | News-Liste mit Filter (category/lang/source/since), Pagination und Redis-Cache |
 | GET | `/api/news/sources` | Konfigurierte RSS-Quellen aus `config/news-sources.json` |
 | GET | `/api/news/briefing` | Tagesbriefing (Groq), Redis-Cache (1h) |
@@ -181,6 +181,7 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 | `import_diffs_to_db.py` | `data/diffs/YYYY-MM-DD.json` → MariaDB |
 | `import_wahlen.py` | GERDA/Wahldaten-CSV → `wahlen` |
 | `import_world_indicators.py` | World-Bank-artige Indikatoren → `world_indicators` |
+| `import_baci.py` | CEPII BACI HS17 (2017-2024) → `trade_flows_v2` inkl. `TOTAL`, Sections I-XXI und `OTHER` mit Audit-Context in `data_update_log` |
 | `match_abstimmungen.py` | DIP-Abgleich `aenderungen` ↔ `abstimmungen` |
 | `migrate_eu_urteile.py` | Schema-Hilfe `eu_urteile` / `eu_urteil_rechtsakte` |
 | `resummarize_claude.py` | EU-Urteile neu zusammenfassen (Claude CLI) |
@@ -198,4 +199,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyreg
 
 ---
 
-**Zuletzt aktualisiert:** 4. Mai 2026
+**Zuletzt aktualisiert:** 4. Mai 2026 (BACI-Import + Trade-API `breakdown=sections`)

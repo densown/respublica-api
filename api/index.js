@@ -2268,6 +2268,7 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
     .toUpperCase()
     .slice(0, 3);
   const year = Number.parseInt(String(req.query.year || ""), 10) || 2023;
+  const includeSections = String(req.query.breakdown || "").trim() === "sections";
   if (!iso3 || iso3.length !== 3) {
     res.status(400).json({ error: "Ungültiger ISO3-Code" });
     return;
@@ -2304,14 +2305,29 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
        WHERE reporter_iso3 = ? AND year = ? AND hs_section = 'TOTAL'`,
       [iso3, year],
     );
-    res.json({
+    const payload = {
       iso3,
       year,
       total_export_usd: totals.total_export,
       total_import_usd: totals.total_import,
       top_exports: exportsRows,
       top_imports: importsRows,
-    });
+    };
+
+    if (includeSections) {
+      const [sectionRows] = await pool.query(
+        `SELECT flow, hs_section, SUM(value_usd) AS value_usd
+         FROM trade_flows_v2
+         WHERE reporter_iso3 = ? AND year = ? AND hs_section <> 'TOTAL'
+         GROUP BY flow, hs_section
+         ORDER BY flow ASC, value_usd DESC`,
+        [iso3, year],
+      );
+      payload.sections_export = sectionRows.filter((r) => r.flow === "export");
+      payload.sections_import = sectionRows.filter((r) => r.flow === "import");
+    }
+
+    res.json(payload);
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
