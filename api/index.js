@@ -2267,6 +2267,8 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
     .trim()
     .toUpperCase()
     .slice(0, 3);
+  const lang = worldLang(req);
+  const partnerNameCol = worldNameCol(lang);
   const year = Number.parseInt(String(req.query.year || ""), 10) || 2023;
   const includeSections = String(req.query.breakdown || "").trim() === "sections";
   if (!iso3 || iso3.length !== 3) {
@@ -2277,9 +2279,10 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
     const pool = getPool();
     const [exportsRows] = await pool.query(
       `SELECT t.partner_iso3 AS partner_code,
-              t.partner_iso3 AS partner_name,
+              COALESCE(dc.\`${partnerNameCol}\`, t.partner_iso3) AS partner_name,
               t.value_usd
        FROM trade_flows_v2 t
+       LEFT JOIN data_countries dc ON dc.iso3 = t.partner_iso3
        WHERE t.reporter_iso3 = ? AND t.flow = 'export' AND t.year = ?
          AND t.hs_section = 'TOTAL'
        ORDER BY t.value_usd DESC
@@ -2288,9 +2291,10 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
     );
     const [importsRows] = await pool.query(
       `SELECT t.partner_iso3 AS partner_code,
-              t.partner_iso3 AS partner_name,
+              COALESCE(dc.\`${partnerNameCol}\`, t.partner_iso3) AS partner_name,
               t.value_usd
        FROM trade_flows_v2 t
+       LEFT JOIN data_countries dc ON dc.iso3 = t.partner_iso3
        WHERE t.reporter_iso3 = ? AND t.flow = 'import' AND t.year = ?
          AND t.hs_section = 'TOTAL'
        ORDER BY t.value_usd DESC
@@ -2328,6 +2332,53 @@ app.get("/api/world/trade/:iso3", async (req, res) => {
     }
 
     res.json(payload);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/world/trade/:iso3/timeseries", async (req, res) => {
+  const iso3 = String(req.params.iso3 || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 3);
+  const rawMin = Number.parseInt(String(req.query.yearMin || ""), 10);
+  const rawMax = Number.parseInt(String(req.query.yearMax || ""), 10);
+  const yearMin = Number.isFinite(rawMin) ? Math.max(1990, Math.min(2100, rawMin)) : 2017;
+  const yearMax = Number.isFinite(rawMax) ? Math.max(1990, Math.min(2100, rawMax)) : 2024;
+  const fromYear = Math.min(yearMin, yearMax);
+  const toYear = Math.max(yearMin, yearMax);
+
+  if (!iso3 || iso3.length !== 3) {
+    res.status(400).json({ error: "Ungültiger ISO3-Code" });
+    return;
+  }
+
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query(
+      `SELECT
+         year,
+         SUM(CASE WHEN flow='export' THEN value_usd ELSE 0 END) AS total_export_usd,
+         SUM(CASE WHEN flow='import' THEN value_usd ELSE 0 END) AS total_import_usd
+       FROM trade_flows_v2
+       WHERE reporter_iso3 = ?
+         AND hs_section = 'TOTAL'
+         AND year BETWEEN ? AND ?
+       GROUP BY year
+       ORDER BY year ASC`,
+      [iso3, fromYear, toYear],
+    );
+
+    res.json({
+      iso3,
+      years: rows.map((r) => ({
+        year: Number(r.year),
+        total_export_usd: Number(r.total_export_usd || 0),
+        total_import_usd: Number(r.total_import_usd || 0),
+      })),
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
