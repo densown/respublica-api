@@ -13,6 +13,8 @@ data/diffs/
 data/raw/
 data/gii_toc.xml
 data/xml_cache/
+logs/vollimport_full.pid
+logs/vollimport_latest.path
 *.log
 
 # Externe Submodules
