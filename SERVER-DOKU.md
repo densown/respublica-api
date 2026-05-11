@@ -23,6 +23,7 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `eu_urteile` | 347 |
 | `eu_urteil_rechtsakte` | 0 |
 | `gesetze` | 229 |
+| `gesetze_sync_log` | neu (Sync-Log fuer `gii_sync.py`) |
 | `lobbyregister` | neu (Befüllung via Script/Cron) |
 | `lobby_regulatory_projects` | neu (Regelungsvorhaben pro Lobbyeintrag) |
 | `urteile` | 578 |
@@ -44,6 +45,12 @@ Kernzählen (wie Monitoring-Query):
 | EU-Rechtsakte (`eu_rechtsakte`) | 591 |
 | Abgeordnete (`abgeordnete`) | 629 |
 | Abstimmungen (`abstimmungen`) | 276 |
+
+### Tabelle `gesetze` (Metadaten gesetze-im-internet.de)
+
+Zusaetzliche Spalten (Migration `migrations/005_gii_gesetze.sql`): u. a. `titel_offiziell`, `amtliche_abkuerzung`, `ausfertigung_datum`, `fundstelle_periodikum`, `fundstelle_zitstelle`, `letzter_stand`, `gii_slug`, `gii_doknr`, `gii_builddate`, `gii_last_synced`, `status`. Manuelle BJNR-zu-Kuerzel-Zuordnung: `scripts/gesetze_mapping_overrides.json`.
+
+**Backup vor Schema-Aenderungen:** z. B. `mysqldump -uroot --socket=/var/run/mysqld/mysqld.sock respublica_gesetze gesetze > /root/backup/respublica_gesetze_gesetze_YYYY-MM-DD.sql`
 
 ### Tabelle `abgeordnete`
 
@@ -74,9 +81,9 @@ Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`
 
 | Methode | Pfad | Kurzbeschreibung |
 |---------|------|------------------|
-| GET | `/api/gesetze` | Liste Gesetzesänderungen (ohne Diff) |
+| GET | `/api/gesetze` | Liste Gesetzesänderungen (ohne Diff), inkl. GII-Felder `titel`, `amtliche_abkuerzung`, `ausfertigung_datum`, … |
 | GET | `/api/gesetze/stats` | Zähler Gesetze / Änderungen |
-| GET | `/api/gesetze/:id` | Einzeländerung inkl. Diff |
+| GET | `/api/gesetze/:id` | Einzeländerung inkl. Diff und GII-Metadaten (`letzter_stand`, …) |
 | GET | `/api/abstimmungen/latest` | Neueste namentliche Abstimmungen (limit query) |
 | GET | `/api/abstimmungen/:poll_id` | Abstimmung nach poll_id |
 | GET | `/api/bundestag/sitzverteilung` | Feste Sitzverteilung WP21 |
@@ -143,6 +150,7 @@ Hinweis: Die Tabellen `world_indicators`, `world_indicator_meta` und `trade_flow
 
 | Zeit (UTC) | Skript | Beschreibung |
 |------------|--------|--------------|
+| 04:00 | `gii_sync.py` | Metadaten von gesetze-im-internet.de (`gii-toc.xml`, `xml.zip`) nach `gesetze` (Vorschlag: `config/gesetze-gii-sync.cron.fragment` nach `/etc/cron.d/` kopieren) |
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
 | 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen` |
@@ -170,6 +178,11 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 | `backfill_eu_betreff.py` | Betreffzeilen zu EU-Akten aus EUR-Lex-HTML nachziehen |
 | `backfill_tenors.py` | Tenor-Felder für Urteile nachziehen (BeautifulSoup) |
 | `bundestag_gesetze_diffs.py` | Tages-Diffs aus Git-Repo als JSON |
+| `gii_parse.py` | TOC und Norm-XML parsen (lxml) |
+| `gii_match.py` | `doknr` / Slug zu `gesetze.id` |
+| `gii_sync.py` | Taeglicher inkrementeller Sync inkl. `gesetze_sync_log` |
+| `gii_initial_import.py` | Erstimport oder Stichprobe (`--limit N`) |
+| `gesetze_mapping_overrides.json` | BJNR zu bestehendem `kuerzel` |
 | `enrich_eu_urteile.py` | EU-Urteile anreichern (EUR-Lex, RDF, SPARQL) |
 | `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete` |
 | `fetch_abgeordnete_fotos.py` | Fehlende `foto_url`/`politiker_id` in `abgeordnete` per AW-API nachziehen |
@@ -198,8 +211,8 @@ Zusätzlich (nicht Gesetze-Repo): 03:00 `/srv/respublica/scripts/backup_wordpres
 
 ## 7. Logs
 
-Cron-/Import-Ausgaben: `logs/cron.log`; Lobbyregister-Sync: `logs/fetch_lobbyregister.log`; Stimmen-Sync: `logs/fetch_votes.log`; Foto-Sync Abgeordnete: `logs/fetch_abgeordnete_fotos.log`; weitere Logdateien z. B. in `logs/` pro Skript.
+Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`; Lobbyregister-Sync: `logs/fetch_lobbyregister.log`; Stimmen-Sync: `logs/fetch_votes.log`; Foto-Sync Abgeordnete: `logs/fetch_abgeordnete_fotos.log`; weitere Logdateien z. B. in `logs/` pro Skript. TOC-Cache: `data/gii_toc.xml`.
 
 ---
 
-**Zuletzt aktualisiert:** 4. Mai 2026 (`GET /api/world/sources`: Metadaten und Nutzungszähler pro `data_sources`; World-Trade optional `partner=ISO3` für HS-Section-Breakdown)
+**Zuletzt aktualisiert:** 11. Mai 2026 (GII-Pipeline: `migrations/005_gii_gesetze.sql`, Skripte `gii_*.py`, API `/api/gesetze` um Metadaten erweitert; Plan: `PIPELINE-PLAN.md`)
