@@ -174,6 +174,8 @@ app.get("/api/gesetze", async (req, res) => {
          g.fundstelle_zitstelle AS fundstelle_zitstelle,
          g.gii_slug AS gii_slug,
          g.status AS gesetz_status,
+         (CASE WHEN EXISTS(SELECT 1 FROM lobby_gesetze lg WHERE lg.gesetz_id = g.id) THEN 1 ELSE 0 END) AS has_lobby,
+         g.titel_offiziell AS titel_offiziell,
          a.datum,
          a.zusammenfassung,
          a.kontext,
@@ -181,7 +183,7 @@ app.get("/api/gesetze", async (req, res) => {
          a.poll_id
        FROM aenderungen a
        INNER JOIN gesetze g ON g.id = a.gesetz_id
-       ORDER BY a.datum DESC, a.id DESC`
+       ORDER BY (g.titel_offiziell IS NULL) ASC, a.datum DESC, a.id DESC`
     );
     const out = rows.map((r) => ({
       id: r.id,
@@ -194,6 +196,8 @@ app.get("/api/gesetze", async (req, res) => {
       fundstelle_zitstelle: r.fundstelle_zitstelle,
       gii_slug: r.gii_slug,
       gesetz_status: r.gesetz_status,
+      has_lobby: Number(r.has_lobby) === 1,
+      titel_offiziell: r.titel_offiziell,
       datum: formatDate(r.datum),
       zusammenfassung: r.zusammenfassung,
       kontext: r.kontext,
@@ -237,6 +241,7 @@ app.get("/api/gesetze/:id", async (req, res) => {
     const [rows] = await getPool().query(
       `SELECT
          a.id,
+         a.gesetz_id AS gesetz_id,
          g.kuerzel AS kuerzel,
          COALESCE(NULLIF(TRIM(g.titel_offiziell), ''), NULLIF(TRIM(g.name), ''), g.kuerzel) AS name,
          COALESCE(NULLIF(TRIM(g.titel_offiziell), ''), NULLIF(TRIM(g.name), ''), g.kuerzel) AS titel,
@@ -266,6 +271,7 @@ app.get("/api/gesetze/:id", async (req, res) => {
     const r = rows[0];
     res.json({
       id: r.id,
+      gesetz_id: r.gesetz_id,
       kuerzel: r.kuerzel,
       name: r.name,
       titel: r.titel,
@@ -1215,6 +1221,35 @@ app.get("/api/lobbyregister/:register_number/projects", async (req, res) => {
       [registerNumber],
     );
     res.json({ items: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+app.get("/api/lobby-projects/by-gesetz-id", async (req, res) => {
+  const gesetzId = Number.parseInt(String(req.query.gesetz_id ?? ""), 10);
+  if (!Number.isFinite(gesetzId) || gesetzId < 1) {
+    res.status(400).json({ error: "Ungültige gesetz_id" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT
+         lrp.id, lrp.title, lrp.project_number, lrp.description,
+         lrp.affected_laws, lrp.project_url, lrp.document_url,
+         lrp.leading_ministries,
+         l.register_number, l.name AS lobbyist_name,
+         l.financial_expenses_euro, l.city, l.legal_form
+       FROM lobby_gesetze lg
+       INNER JOIN lobby_regulatory_projects lrp ON lrp.id = lg.project_id
+       INNER JOIN lobbyregister l ON l.register_number = lrp.lobby_register_number
+       WHERE lg.gesetz_id = ?
+       ORDER BY l.financial_expenses_euro DESC
+       LIMIT 50`,
+      [gesetzId],
+    );
+    res.json({ exact: rows, related: [] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Datenbankfehler" });
