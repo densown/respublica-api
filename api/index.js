@@ -1256,6 +1256,62 @@ app.get("/api/lobby-projects/by-gesetz-id", async (req, res) => {
   }
 });
 
+app.get("/api/lobbyregister/:register_number/gesetze", async (req, res) => {
+  const registerNumber = String(req.params.register_number || "").trim();
+  if (!registerNumber) {
+    res.status(400).json({ error: "register_number fehlt" });
+    return;
+  }
+  try {
+    const [rows] = await getPool().query(
+      `SELECT
+         g.id AS gesetz_id,
+         g.kuerzel,
+         g.titel_offiziell,
+         g.name,
+         g.gii_slug,
+         COUNT(DISTINCT lg.project_id) AS projekt_count,
+         (
+           SELECT a.id 
+           FROM aenderungen a 
+           WHERE a.gesetz_id = g.id 
+           ORDER BY a.datum DESC, a.id DESC 
+           LIMIT 1
+         ) AS aenderung_id
+       FROM lobby_gesetze lg
+       INNER JOIN lobby_regulatory_projects lrp ON lrp.id = lg.project_id
+       INNER JOIN gesetze g ON g.id = lg.gesetz_id
+       WHERE lrp.lobby_register_number = ?
+       GROUP BY g.id, g.kuerzel, g.titel_offiziell, g.name, g.gii_slug
+       ORDER BY projekt_count DESC, g.kuerzel ASC`,
+      [registerNumber],
+    );
+
+    // Stats fuer methodische Transparenz
+    const [[stats]] = await getPool().query(
+      `SELECT 
+         COUNT(DISTINCT lrp.id) AS projekte_gesamt,
+         COUNT(DISTINCT lg.project_id) AS projekte_mit_mapping
+       FROM lobby_regulatory_projects lrp
+       LEFT JOIN lobby_gesetze lg ON lg.project_id = lrp.id
+       WHERE lrp.lobby_register_number = ?`,
+      [registerNumber],
+    );
+
+    res.json({
+      items: rows,
+      stats: {
+        projekte_gesamt: Number(stats.projekte_gesamt) || 0,
+        projekte_mit_mapping: Number(stats.projekte_mit_mapping) || 0,
+        unique_gesetze: rows.length,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
 app.get("/api/lobby-projects/by-law", async (req, res) => {
   const q = String(req.query.q ?? "").trim();
   if (!q || q.length < 2) {
