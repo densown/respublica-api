@@ -1,3 +1,3 @@
 # Taeglich 04:00 UTC: gesetze-im-internet.de -> MariaDB (siehe PIPELINE-PLAN.md)
 # Installation: Kopie nach /etc/cron.d/gesetze-gii-sync und systemctl restart cron
-0 4 * * * root /usr/bin/python3 /root/apps/gesetze/scripts/gii_sync.py >> /root/apps/gesetze/logs/cron.log 2>&1
+0 4 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/gii_sync.py >> /root/apps/gesetze/logs/cron.log 2>&1
