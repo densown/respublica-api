@@ -11,6 +11,8 @@ data/pm2-status.json
 # Lokale Daten-Caches
 data/diffs/
 data/raw/
+data/gii_toc.xml
+data/xml_cache/
 *.log
 
 # Externe Submodules
