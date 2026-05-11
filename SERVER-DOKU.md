@@ -52,6 +52,8 @@ Zusätzliche Spalten (Migration `migrations/005_gii_gesetze.sql`): u. a. `titel_
 
 **Backup vor Schema-Aenderungen:** z. B. `mysqldump -uroot --socket=/var/run/mysqld/mysqld.sock respublica_gesetze gesetze > /root/backup/respublica_gesetze_gesetze_YYYY-MM-DD.sql`
 
+Zusätzliche GII-Migrationen: `migrations/006_gii_titel_text.sql` (`titel_offiziell` TEXT), `migrations/007_gii_fundstelle_widen.sql` (längere Fundstellen-Felder). Täglicher Cron nutzt `.venv/bin/python3` (siehe `config/gesetze-gii-sync.cron.fragment`).
+
 ### Tabelle `abgeordnete`
 
 Bundestagsabgeordnete (21. Wahlperiode), befüllt per `scripts/fetch_abgeordnete.py` aus der Abgeordnetenwatch API v2.
@@ -215,4 +217,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 11. Mai 2026 (GII-Pipeline: `migrations/005_gii_gesetze.sql`, Skripte `gii_*.py`, API `/api/gesetze` um Metadaten erweitert; Plan: `PIPELINE-PLAN.md`)
+**Zuletzt aktualisiert:** 11. Mai 2026 (GII: Vollimport, `gesetze-sync` Cron mit venv-Python, Migrationen 006/007 Fundstelle/Titel; Plan: `PIPELINE-PLAN.md`)
