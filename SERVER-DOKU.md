@@ -48,7 +48,7 @@ Kernzählen (wie Monitoring-Query):
 
 ### Tabelle `gesetze` (Metadaten gesetze-im-internet.de)
 
-Zusaetzliche Spalten (Migration `migrations/005_gii_gesetze.sql`): u. a. `titel_offiziell`, `amtliche_abkuerzung`, `ausfertigung_datum`, `fundstelle_periodikum`, `fundstelle_zitstelle`, `letzter_stand`, `gii_slug`, `gii_doknr`, `gii_builddate`, `gii_last_synced`, `status`. Manuelle BJNR-zu-Kuerzel-Zuordnung: `scripts/gesetze_mapping_overrides.json`.
+Zusätzliche Spalten (Migration `migrations/005_gii_gesetze.sql`): u. a. `titel_offiziell`, `amtliche_abkuerzung`, `ausfertigung_datum`, `fundstelle_periodikum`, `fundstelle_zitstelle`, `letzter_stand`, `gii_slug`, `gii_doknr`, `gii_builddate`, `gii_last_synced`, `status`. Manuelle BJNR-zu-Kuerzel-Zuordnung: `scripts/gesetze_mapping_overrides.json`.
 
 **Backup vor Schema-Aenderungen:** z. B. `mysqldump -uroot --socket=/var/run/mysqld/mysqld.sock respublica_gesetze gesetze > /root/backup/respublica_gesetze_gesetze_YYYY-MM-DD.sql`
 
