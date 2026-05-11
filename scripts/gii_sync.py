@@ -83,6 +83,33 @@ def row_is_current(cur, gesetz_id: int, doknr: str, builddate: str) -> bool:
     return cur.fetchone() is not None
 
 
+MAX_TITEL_CHARS = 16000
+MAX_ZITSTELLE = 500
+MAX_PERIODIKUM = 60
+
+
+def clamp_titel(value: str | None) -> str | None:
+    if not value:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    if len(s) <= MAX_TITEL_CHARS:
+        return s
+    return s[: MAX_TITEL_CHARS - 3] + "..."
+
+
+def clamp_varchar(value: str | None, max_len: int) -> str | None:
+    if not value:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
 def pick_insert_kuerzel(meta: dict, slug: str, doknr: str) -> str:
     for key in ("jurabk", "amtabk"):
         v = (meta.get(key) or "").strip()
@@ -114,11 +141,11 @@ def update_law(cur, gesetz_id: int, meta: dict, slug: str) -> None:
         WHERE id = %s
         """,
         (
-            meta.get("langue") or None,
+            clamp_titel(meta.get("langue")),
             amt,
             meta.get("ausfertigung_datum") or "",
-            meta.get("fundstelle_periodikum") or None,
-            meta.get("fundstelle_zitstelle") or None,
+            clamp_varchar(meta.get("fundstelle_periodikum"), MAX_PERIODIKUM),
+            clamp_varchar(meta.get("fundstelle_zitstelle"), MAX_ZITSTELLE),
             meta.get("letzter_stand"),
             slug,
             meta.get("doknr"),
@@ -135,7 +162,7 @@ def insert_law(cur, meta: dict, slug: str) -> None:
     if cur.fetchone() and doknr:
         ku = doknr[:50]
     pfad = f"gii/{slug}"
-    titel = meta.get("langue") or ""
+    titel = clamp_titel(meta.get("langue")) or ""
     amt = (meta.get("amtabk") or meta.get("jurabk") or "").strip() or None
     cur.execute(
         """
@@ -156,8 +183,8 @@ def insert_law(cur, meta: dict, slug: str) -> None:
             titel or None,
             amt,
             meta.get("ausfertigung_datum") or "",
-            meta.get("fundstelle_periodikum") or None,
-            meta.get("fundstelle_zitstelle") or None,
+            clamp_varchar(meta.get("fundstelle_periodikum"), MAX_PERIODIKUM),
+            clamp_varchar(meta.get("fundstelle_zitstelle"), MAX_ZITSTELLE),
             meta.get("letzter_stand"),
             slug,
             doknr or None,
