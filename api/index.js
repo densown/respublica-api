@@ -1929,6 +1929,11 @@ app.get("/api/world/categories", async (req, res) => {
        FROM data_indicators di
        LEFT JOIN world_indicator_meta wm ON wm.indicator_code = di.code
        WHERE di.is_active = 1
+         -- Köppen-Geiger-Klimaklassen (kategorial 1..30) aus dem Karten-Dropdown
+         -- ausblenden: die kontinuierliche Choropleth-Farbskala würde sie falsch
+         -- als Gradient einfärben. Sie bleiben über /api/world/country/:code und
+         -- /api/world/climate/:iso3 verfügbar.
+         AND di.code NOT LIKE 'climate.koppen.dominant_%'
        ORDER BY di.category, di.code`,
     );
     const byCat = new Map();
@@ -2004,6 +2009,20 @@ app.get("/api/world/map", async (req, res) => {
   let year = Number.parseInt(String(req.query.year || ""), 10);
   if (!indicator) {
     res.status(400).json({ error: "indicator erforderlich" });
+    return;
+  }
+  // Kategoriale Köppen-Geiger-Indikatoren (Werte 1..30) können nicht als
+  // kontinuierliche Choropleth gerendert werden und sind hier deshalb gesperrt.
+  // Sie sind aus dem Karten-Dropdown gefiltert (/api/world/categories); dieser
+  // Block fängt direkt konstruierte Anfragen ab. Wenn später ein echter
+  // Klimakarten-Modus mit kategorialer Färbung dazukommt, wird /api/world/map
+  // entsprechend erweitert und dieser Block fällt.
+  if (indicator.startsWith("climate.koppen.dominant_")) {
+    res.status(400).json({
+      error:
+        "Kategoriale Indikatoren sind über diesen Endpoint nicht abrufbar. " +
+        "Nutze /api/world/climate/:iso3 für Klimadaten.",
+    });
     return;
   }
   if (!Number.isFinite(year)) {
@@ -2163,6 +2182,133 @@ app.get("/api/world/country/:code", async (req, res) => {
       region: resolvedMeta.region,
       income_level: resolvedMeta.income_level,
       indicators,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Datenbankfehler" });
+  }
+});
+
+// Köppen-Geiger-Klimaklassen pro Land: dominante Klasse + volle Verteilung je
+// Szenario. Vorlage: GET /api/world/trade/:iso3. Joint data_values (die fünf
+// climate.koppen.dominant_*-Indikatoren) mit climate_koeppen_classes (Symbol/
+// Name/Farbe) und climate_koeppen_distribution (Anteil je vorkommender Klasse).
+const CLIMATE_SCENARIOS = [
+  { scenario: "historical", code: "climate.koppen.dominant_historical", period: "1991_2020", year: 2020 },
+  { scenario: "ssp126", code: "climate.koppen.dominant_ssp126", period: "2071_2099", year: 2099 },
+  { scenario: "ssp245", code: "climate.koppen.dominant_ssp245", period: "2071_2099", year: 2099 },
+  { scenario: "ssp370", code: "climate.koppen.dominant_ssp370", period: "2071_2099", year: 2099 },
+  { scenario: "ssp585", code: "climate.koppen.dominant_ssp585", period: "2071_2099", year: 2099 },
+];
+
+app.get("/api/world/climate/:iso3", async (req, res) => {
+  const iso3 = String(req.params.iso3 || "")
+    .trim()
+    .toUpperCase()
+    .slice(0, 3);
+  if (!iso3 || iso3.length !== 3) {
+    res.status(400).json({ error: "Ungültiger ISO3-Code" });
+    return;
+  }
+  try {
+    const lang = worldLang(req);
+    const nameCol = worldNameCol(lang);
+    const pool = getPool();
+
+    // Dominante Klasse je Szenario (data_values -> Indikator -> Klassen-Lookup).
+    const [dominantRows] = await pool.query(
+      `SELECT di.code AS indicator_code,
+              dv.year,
+              ROUND(dv.value) AS class_code,
+              k.symbol, k.name_de, k.name_en, k.color_rgb, k.major_group
+       FROM data_values dv
+       INNER JOIN data_indicators di ON di.id = dv.indicator_id
+       LEFT JOIN climate_koeppen_classes k ON k.class_code = ROUND(dv.value)
+       WHERE dv.country_code = ?
+         AND di.code IN (?, ?, ?, ?, ?)`,
+      [iso3, ...CLIMATE_SCENARIOS.map((s) => s.code)],
+    );
+
+    // Kein Klima-Datensatz für dieses Land -> wie unbekannt behandeln.
+    if (!dominantRows.length) {
+      res.status(404).json({ error: "Nicht gefunden" });
+      return;
+    }
+
+    // Volle Verteilung je Szenario/Periode (eine Zeile pro vorkommender Klasse).
+    const [distRows] = await pool.query(
+      `SELECT d.scenario,
+              d.period,
+              d.class_code,
+              d.share,
+              d.pixel_count,
+              k.symbol,
+              k.color_rgb
+       FROM climate_koeppen_distribution d
+       LEFT JOIN climate_koeppen_classes k ON k.class_code = d.class_code
+       WHERE d.country_code = ?
+       ORDER BY d.scenario ASC, d.share DESC`,
+      [iso3],
+    );
+
+    const [[nameRow]] = await pool.query(
+      `SELECT dc.\`${nameCol}\` AS country_name
+       FROM data_countries dc
+       WHERE dc.iso3 = ?
+       LIMIT 1`,
+      [iso3],
+    );
+
+    // Indikator-Code + Jahr -> dominante Klasse. Das Jahr unterscheidet später
+    // evtl. ergänzte Mid-Century-Rows (2041_2070) am selben SSP-Indikator.
+    const dominantByKey = new Map(
+      dominantRows.map((r) => [`${r.indicator_code}|${r.year}`, r]),
+    );
+    // Szenario + Periode -> Verteilungszeilen (Reihenfolge bereits share DESC).
+    const distByKey = new Map();
+    for (const r of distRows) {
+      const key = `${r.scenario}|${r.period}`;
+      if (!distByKey.has(key)) distByKey.set(key, []);
+      distByKey.get(key).push({
+        class_code: worldNum(r.class_code),
+        symbol: r.symbol,
+        color_rgb: r.color_rgb,
+        share: worldNum(r.share),
+        pixel_count: worldNum(r.pixel_count),
+      });
+    }
+
+    const scenarios = CLIMATE_SCENARIOS.map((s) => {
+      const dom = dominantByKey.get(`${s.code}|${s.year}`);
+      const distribution = distByKey.get(`${s.scenario}|${s.period}`) || [];
+      let dominant = null;
+      if (dom && dom.class_code != null) {
+        const classCode = worldNum(dom.class_code);
+        // Anteil der dominanten Klasse aus der Verteilung übernehmen.
+        const domShare = distribution.find((d) => d.class_code === classCode);
+        dominant = {
+          class_code: classCode,
+          symbol: dom.symbol,
+          name_de: dom.name_de,
+          name_en: dom.name_en,
+          color_rgb: dom.color_rgb,
+          major_group: dom.major_group,
+          share: domShare ? domShare.share : null,
+        };
+      }
+      return {
+        scenario: s.scenario,
+        period: s.period,
+        year: s.year,
+        dominant,
+        distribution,
+      };
+    });
+
+    res.json({
+      iso3,
+      country_name: nameRow?.country_name || iso3,
+      scenarios,
     });
   } catch (err) {
     console.error(err);
