@@ -2220,7 +2220,9 @@ app.get("/api/world/climate/:iso3", async (req, res) => {
       `SELECT di.code AS indicator_code,
               dv.year,
               ROUND(dv.value) AS class_code,
-              k.symbol, k.name_de, k.name_en, k.color_rgb, k.major_group
+              k.symbol, k.name_de, k.name_en,
+              k.short_name_de, k.short_name_en,
+              k.color_rgb, k.major_group
        FROM data_values dv
        INNER JOIN data_indicators di ON di.id = dv.indicator_id
        LEFT JOIN climate_koeppen_classes k ON k.class_code = ROUND(dv.value)
@@ -2291,6 +2293,7 @@ app.get("/api/world/climate/:iso3", async (req, res) => {
           symbol: dom.symbol,
           name_de: dom.name_de,
           name_en: dom.name_en,
+          short_name: lang === "de" ? dom.short_name_de : dom.short_name_en,
           color_rgb: dom.color_rgb,
           major_group: dom.major_group,
           share: domShare ? domShare.share : null,
