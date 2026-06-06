@@ -217,4 +217,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 11. Mai 2026 (GII: Vollimport, `gesetze-sync` Cron mit venv-Python, Migrationen 006/007 Fundstelle/Titel; Plan: `PIPELINE-PLAN.md`)
+**Zuletzt aktualisiert:** 2. Juni 2026 (Serverweite Navigation: WordPress Theme ergänzt globale Bottom-Bar und Sidebar-Quick-Actions; API selbst unverändert)
