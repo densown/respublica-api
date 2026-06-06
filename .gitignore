@@ -29,3 +29,6 @@ scripts/migration/
 data/baci/
 data/raw/
 data/raw/
+scripts/venv-koeppen/
+data/climate/
+data/geo/
