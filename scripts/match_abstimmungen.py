@@ -27,9 +27,6 @@ from lib.db import get_db
 from lib.env import load_env
 
 DIP_BASE = "https://search.dip.bundestag.de/api/v1/vorgang"
-# Öffentlicher DIP-Schlüssel (bund.dev / DIP-Hilfe); gültig bis ca. 05/2026.
-# Häufiger Schreibfehler: „…YKkhw“ statt „…YKtwKkhw“.
-DIP_APIKEY = "OSOegLs.PR2lwJ1dwCeje9vTj7FPOt3hvpYKtwKkhw"
 WINDOW_DAYS = 30
 MIN_SCORE = 0.28
 DIP_MAX_PAGES = 40
@@ -256,7 +253,10 @@ def fetch_poll_candidates(
 
 def main() -> int:
     load_env()
-    apikey = os.environ.get("DIP_API_KEY", DIP_APIKEY)
+    apikey = os.environ.get("DIP_API_KEY", "").strip()
+    if not apikey:
+        print("Fehler: DIP_API_KEY fehlt in .env", file=sys.stderr)
+        sys.exit(1)
 
     conn = get_db(autocommit=False)
     matched = 0
