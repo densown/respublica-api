@@ -8,44 +8,21 @@ schreibt Änderungen nach MariaDB. Wiederholter Lauf am selben Tag ist idempoten
 from __future__ import annotations
 
 import json
-import os
 import sys
 from datetime import date
 from pathlib import Path
 
-import mysql.connector
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parent.parent
+from lib.db import get_db
+from lib.env import ROOT, load_env
+
 DIFFS_DIR = ROOT / "data" / "diffs"
 
 
 def kuerzel_und_pfad(rel_path: str) -> tuple[str, str]:
     """kmein/gesetze: kuerzel = Dateiname ohne Endung, pfad = voller relativer Pfad."""
     return Path(rel_path).stem, rel_path
-
-
-def load_env() -> None:
-    load_dotenv(ROOT / ".env")
-
-
-def connect():
-    host = os.environ.get("DB_HOST", "localhost")
-    user = os.environ.get("DB_USER")
-    password = os.environ.get("DB_PASSWORD", "")
-    database = os.environ.get("DB_NAME", "respublica_gesetze")
-    if not user:
-        print("Fehler: DB_USER fehlt in .env", file=sys.stderr)
-        sys.exit(1)
-    return mysql.connector.connect(
-        host=host,
-        user=user,
-        password=password,
-        database=database,
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=False,
-    )
 
 
 def main() -> int:
@@ -63,7 +40,7 @@ def main() -> int:
         print('Ungültiges JSON: "files" muss eine Liste sein.', file=sys.stderr)
         return 1
 
-    conn = connect()
+    conn = get_db(autocommit=False)
     neue_gesetze = 0
     neue_aenderungen = 0
 
