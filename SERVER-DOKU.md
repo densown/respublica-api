@@ -170,6 +170,17 @@ Logrotation: `/etc/logrotate.d/respublica-gesetze` rotiert `logs/*.log` wöchent
 
 ## 6. Skripte unter `scripts/` (Einzeiler)
 
+### Gemeinsame Library `scripts/lib/`
+
+Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nutzung: `sys.path` muss `scripts/` enthalten, dann `from lib.db import get_db` etc.
+
+| Datei | Inhalt |
+|-------|--------|
+| `lib/env.py` | `ROOT` (Projektroot) und `load_env()` (lädt `ROOT/.env`) |
+| `lib/db.py` | `get_db(autocommit=True)` mit Unix-Socket-Fallback (Vorlage `gii_sync.py`), `with_connection()` Contextmanager |
+| `lib/log.py` | `get_logger(name)` (Datei `logs/{name}.log` + stdout), `acquire_lock(name)`/`release_lock(name)` (PID-File), `install_signal_handlers(callback)` |
+| `lib/groq.py` | `chat_completion(messages, model, max_tokens, temperature)` mit voller Retry-Logik (5 Versuche, 429-Backoff, Anti-Abuse-Erkennung) |
+
 | Datei | Zweck |
 |-------|--------|
 | `backfill_diffs.py` | Letzte 30 Tage Git-Commits im Gesetze-Repo, Diffs nach DB backfillen |
@@ -212,4 +223,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 11. Juni 2026 (Refactoring Phase 0: News-Pipeline entfernt [Routen `/api/news*`, `modules/`, `news_items`], Legacy-Tabellen `trade_flows`/`gesetze_fix_test`/`lobby_gesetze_backup_*` gedroppt, tägliches DB-Backup + Logrotation eingerichtet)
+**Zuletzt aktualisiert:** 11. Juni 2026 (Refactoring Phase 0: News-Pipeline entfernt [Routen `/api/news*`, `modules/`, `news_items`], Legacy-Tabellen `trade_flows`/`gesetze_fix_test`/`lobby_gesetze_backup_*` gedroppt, tägliches DB-Backup + Logrotation eingerichtet; Phase 1 B1: gemeinsame Library `scripts/lib/` [env, db, log, groq] erstellt)
