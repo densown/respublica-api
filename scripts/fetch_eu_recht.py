@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Fetch EU legal acts from EUR-Lex SPARQL, store in eu_rechtsakte."""
-import os
 import re
+import sys
 from datetime import date, timedelta
+from pathlib import Path
 from urllib.parse import urlencode
 
 import mysql.connector
 import requests
-from dotenv import load_dotenv
 
-load_dotenv('/root/apps/gesetze/.env')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 SPARQL_URL = 'https://publications.europa.eu/webapi/rdf/sparql'
 LOG_PATH = '/root/apps/gesetze/logs/cron.log'
@@ -59,15 +62,6 @@ def log_line(msg):
             f.write(line)
     except OSError:
         pass
-
-
-def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME'),
-    )
 
 
 def binding_val(bindings, key):
@@ -185,6 +179,7 @@ def merge_rows(de_data, en_data):
 
 
 def main():
+    load_env()
     cutoff = (date.today() - timedelta(days=365)).isoformat()
     log_line(f'Start, cutoff {cutoff}')
 
@@ -200,7 +195,7 @@ def main():
     rows = merge_rows(de_json, en_json)
     log_line(f'{len(rows)} eindeutige CELEX nach Merge')
 
-    db = get_db()
+    db = get_db(autocommit=False)
     cur = db.cursor()
     inserted = 0
     for r in rows:
