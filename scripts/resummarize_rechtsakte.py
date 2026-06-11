@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """EU-Rechtsakte mit Claude neu zusammenfassen."""
-import json, os, re, subprocess, time
-import mysql.connector
-from dotenv import load_dotenv
+import json, os, re, subprocess, sys, time
+from pathlib import Path
 
-load_dotenv('/root/apps/gesetze/.env')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db as lib_get_db
+from lib.env import load_env
+
+load_env()
 LOG_FILE = '/root/apps/gesetze/logs/resummarize_rechtsakte.log'
 
 def log(msg):
@@ -14,9 +18,7 @@ def log(msg):
         f.write(line + '\n')
 
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'), user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'), database=os.getenv('DB_NAME'))
+    return lib_get_db(autocommit=False)
 
 def build_prompt(row):
     uid, celex, titel_de, titel_en, typ_label, eurovoc_tags = row

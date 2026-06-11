@@ -23,14 +23,17 @@ import sys
 import time
 from pathlib import Path
 
-import mysql.connector
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db as lib_get_db
+from lib.env import load_env
+from lib.log import acquire_lock as lib_acquire_lock, release_lock as lib_release_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "summarize_gesetze_claude.log"
-PID_FILE = LOG_DIR / "summarize_gesetze_claude.pid"
+LOCK_NAME = "summarize_gesetze_claude"
 
 DIFF_PREVIEW_LEN = 50000   # max 50 KB Diff im Prompt (vs Groqs 2 KB)
 TIMEOUT_SEC = 180
@@ -55,39 +58,16 @@ def log(msg, also_stdout=True):
 
 
 def get_db():
-    load_dotenv(ROOT / ".env")
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST", "localhost"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD", ""),
-        database=os.getenv("DB_NAME", "respublica_gesetze"),
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=True,  # per-row commit
-    )
+    load_env()
+    return lib_get_db(autocommit=True)  # per-row commit
 
 
 def acquire_lock():
-    my_pid = os.getpid()
-    if PID_FILE.exists():
-        try:
-            old_pid = int(PID_FILE.read_text().strip())
-            if old_pid != my_pid:
-                os.kill(old_pid, 0)
-                log(f"FEHLER: Anderer Prozess laeuft bereits (PID {old_pid}). Abbruch.")
-                return False
-        except (OSError, ValueError):
-            pass
-    PID_FILE.write_text(str(my_pid))
-    return True
+    return lib_acquire_lock(LOCK_NAME)
 
 
 def release_lock():
-    try:
-        if PID_FILE.exists():
-            PID_FILE.unlink()
-    except OSError:
-        pass
+    lib_release_lock(LOCK_NAME)
 
 
 def build_prompt(kuerzel: str, titel: str, diff_text: str) -> str:
