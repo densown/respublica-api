@@ -1,15 +1,9 @@
 "use strict";
 
 const path = require("path");
-const fs = require("fs/promises");
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2/promise");
-const { execFile } = require("child_process");
-const { promisify } = require("util");
-
-const { fetchAllNews } = require("../modules/newsFetcher");
-const { runNewsSummarizer } = require("../modules/newsSummarizer");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
@@ -17,11 +11,6 @@ const PORT = Number.parseInt(process.env.PORT || "3002", 10);
 const DB_NAME = process.env.DB_NAME || "respublica_gesetze";
 
 let pool;
-const execFileAsync = promisify(execFile);
-
-const REDIS_TTL_NEWS_LIST_SECONDS = 5 * 60;
-const REDIS_TTL_BRIEFING_SECONDS = 60 * 60;
-let newsSourcesCache = null;
 
 function getPool() {
   if (!pool) {
@@ -57,91 +46,6 @@ function formatDate(val) {
   if (val == null) return null;
   if (val instanceof Date) return val.toISOString().slice(0, 10);
   return String(val).slice(0, 10);
-}
-
-function formatDateTime(val) {
-  if (val == null) return null;
-  if (val instanceof Date) return val.toISOString();
-  const d = new Date(val);
-  return Number.isNaN(d.valueOf()) ? null : d.toISOString();
-}
-
-async function redisGet(key) {
-  try {
-    const { stdout } = await execFileAsync("redis-cli", ["GET", key], { timeout: 2500 });
-    const out = String(stdout || "").trim();
-    return out || null;
-  } catch {
-    return null;
-  }
-}
-
-async function redisSetEx(key, ttlSec, value) {
-  try {
-    await execFileAsync("redis-cli", ["SETEX", key, String(ttlSec), value], { timeout: 2500 });
-  } catch {
-    // Keep API functional if Redis is unavailable.
-  }
-}
-
-async function loadNewsSources() {
-  if (newsSourcesCache) return newsSourcesCache;
-  const cfgPath = path.join(__dirname, "..", "config", "news-sources.json");
-  const raw = await fs.readFile(cfgPath, "utf8");
-  newsSourcesCache = JSON.parse(raw);
-  return newsSourcesCache;
-}
-
-function flattenNewsSources(obj) {
-  const rows = [];
-  for (const [category, items] of Object.entries(obj)) {
-    for (const item of items) rows.push({ ...item, category });
-  }
-  return rows;
-}
-
-async function createNewsBriefing(items) {
-  const apiKey = process.env.GROQ_API_KEY;
-  const model = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-  if (!apiKey) throw new Error("GROQ_API_KEY missing");
-
-  const headlineLines = items.slice(0, 50).map((item) => {
-    const source = String(item.source_name || "Unbekannte Quelle").slice(0, 120);
-    const title = String(item.title || "").replace(/\s+/g, " ").trim().slice(0, 220);
-    return `[${source}]: [${title}]`;
-  });
-
-  const prompt =
-    "Du bist politischer Nachrichtenredakteur. Hier sind die aktuellsten Schlagzeilen der letzten 24 Stunden. " +
-    "Schreibe ein Briefing mit genau 5 Themen. Pro Thema: ein Satz. Kein Einleitungssatz. " +
-    "Keine Bullet-Points, keine Bindestriche, keine Aufzählungen. Fließtext. " +
-    "Fange direkt mit dem ersten Thema an. Wiederhole keine Information. " +
-    headlineLines.join("\n");
-
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      max_tokens: 500,
-      messages: [
-        { role: "system", content: "Schreibe kompakte, präzise News-Briefings auf Deutsch." },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Groq briefing failed ${response.status}: ${text}`);
-  }
-  const json = await response.json();
-  const content = json?.choices?.[0]?.message?.content?.trim();
-  if (!content) throw new Error("Empty briefing from Groq");
-  return content;
 }
 
 /** Aktuelle Sitzverteilung Bundestag, 21. Wahlperiode (fest codiert) */
@@ -2741,126 +2645,6 @@ app.get("/api/world/trade/:iso3/timeseries", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
-  }
-});
-
-app.get("/api/news", async (req, res) => {
-  try {
-    const category = String(req.query.category || "").trim();
-    const lang = String(req.query.lang || "").trim();
-    const source = String(req.query.source || "").trim();
-    const since = String(req.query.since || "").trim();
-
-    let limit = Number.parseInt(String(req.query.limit ?? "50"), 10);
-    let offset = Number.parseInt(String(req.query.offset ?? "0"), 10);
-    if (!Number.isFinite(limit) || limit < 1) limit = 50;
-    if (limit > 200) limit = 200;
-    if (!Number.isFinite(offset) || offset < 0) offset = 0;
-
-    const cacheKey = `news:${category || "*"}:${lang || "*"}:${source || "*"}:${since || "*"}:${limit}:${offset}`;
-    const cached = await redisGet(cacheKey);
-    if (cached) {
-      res.type("application/json").send(cached);
-      return;
-    }
-
-    let where = "WHERE 1=1";
-    const params = [];
-    if (category) {
-      where += " AND category = ?";
-      params.push(category);
-    }
-    if (lang) {
-      where += " AND language = ?";
-      params.push(lang);
-    }
-    if (source) {
-      where += " AND source_key = ?";
-      params.push(source);
-    }
-    if (since) {
-      where += " AND published_at >= ?";
-      params.push(since);
-    }
-
-    const db = getPool();
-    const [[countRow]] = await db.query(
-      `SELECT COUNT(*) AS total FROM news_items ${where}`,
-      params
-    );
-    const [rows] = await db.query(
-      `SELECT id, guid, title, description, content, url, published_at, fetched_at,
-              source_key, source_name, category, language, groq_summary, summarized_at
-       FROM news_items
-       ${where}
-       ORDER BY published_at DESC, id DESC
-       LIMIT ? OFFSET ?`,
-      [...params, limit, offset]
-    );
-    const [catRows] = await db.query(
-      "SELECT DISTINCT category FROM news_items WHERE category IS NOT NULL ORDER BY category ASC"
-    );
-
-    const payload = {
-      items: rows.map((r) => ({
-        ...r,
-        published_at: formatDateTime(r.published_at),
-        fetched_at: formatDateTime(r.fetched_at),
-        summarized_at: formatDateTime(r.summarized_at),
-      })),
-      total: Number(countRow?.total) || 0,
-      categories: catRows.map((r) => r.category),
-      fetched_at: new Date().toISOString(),
-    };
-
-    const serialized = JSON.stringify(payload);
-    await redisSetEx(cacheKey, REDIS_TTL_NEWS_LIST_SECONDS, serialized);
-    res.type("application/json").send(serialized);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Datenbankfehler" });
-  }
-});
-
-app.get("/api/news/sources", async (_req, res) => {
-  try {
-    const cfg = await loadNewsSources();
-    res.json(cfg);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Konfigurationsfehler" });
-  }
-});
-
-app.get("/api/news/briefing", async (_req, res) => {
-  try {
-    const dateKey = new Date().toISOString().slice(0, 10);
-    const cacheKey = `news:briefing:${dateKey}`;
-    const cached = await redisGet(cacheKey);
-    if (cached) {
-      res.type("application/json").send(cached);
-      return;
-    }
-
-    const [rows] = await getPool().query(
-      `SELECT title, source_name, published_at
-       FROM news_items
-       WHERE published_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-       ORDER BY published_at DESC
-       LIMIT 50`
-    );
-    const briefing = await createNewsBriefing(rows);
-    const payload = {
-      briefing,
-      generated_at: new Date().toISOString(),
-      items_count: rows.length,
-    };
-    const serialized = JSON.stringify(payload);
-    await redisSetEx(cacheKey, REDIS_TTL_BRIEFING_SECONDS, serialized);
-    res.type("application/json").send(serialized);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Briefing-Fehler" });
   }
 });
 
