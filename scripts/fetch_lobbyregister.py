@@ -3,19 +3,22 @@
 import argparse
 import json
 import math
-import os
+import sys
 import time
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 
 import mysql.connector
-from dotenv import load_dotenv
 
-load_dotenv('/root/apps/gesetze/.env')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 API_URL = 'https://www.lobbyregister.bundestag.de/sucheDetailJson'
 API_KEY = '5bHB2zrUuHR6YdPoZygQhWfg2CBrjUOi'
@@ -134,15 +137,6 @@ def log_line(msg: str) -> None:
             fh.write(line)
     except OSError:
         pass
-
-
-def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME', 'respublica_gesetze'),
-    )
 
 
 def parse_date(raw: Any) -> str | None:
@@ -361,11 +355,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    load_env()
     args = parse_args()
     log_line('Start')
 
     try:
-        db = get_db()
+        db = get_db(autocommit=False)
         cur = db.cursor()
     except mysql.connector.Error as err:
         log_line(f'DB-Verbindung fehlgeschlagen: {err}')
