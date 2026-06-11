@@ -7,7 +7,6 @@ ordnet per Kürzel-Mapping und Datum (±60 Tage) aenderungen zu und setzt bgbl_r
 from __future__ import annotations
 
 import html as html_module
-import os
 import re
 import sys
 import urllib.request
@@ -15,10 +14,10 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-import mysql.connector
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parent.parent
+from lib.db import get_db
+from lib.env import load_env
 
 AKTU_URL = "https://www.gesetze-im-internet.de/aktuDienst.html"
 WINDOW_DAYS = 60
@@ -84,29 +83,6 @@ class BgblEintrag:
     titel_roh: str
     veroeffentlicht: date
     referenz: str
-
-
-def load_env() -> None:
-    load_dotenv(ROOT / ".env")
-
-
-def connect():
-    host = os.environ.get("DB_HOST", "localhost")
-    user = os.environ.get("DB_USER")
-    password = os.environ.get("DB_PASSWORD", "")
-    database = os.environ.get("DB_NAME", "respublica_gesetze")
-    if not user:
-        print("Fehler: DB_USER fehlt in .env", file=sys.stderr)
-        sys.exit(1)
-    return mysql.connector.connect(
-        host=host,
-        user=user,
-        password=password,
-        database=database,
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=False,
-    )
 
 
 MONTH_DE = {
@@ -239,7 +215,7 @@ def main() -> int:
         print("Keine BGBl-Einträge geparst.", file=sys.stderr)
         return 1
 
-    conn = connect()
+    conn = get_db(autocommit=False)
     neu = 0
     try:
         cur = conn.cursor(dictionary=True)
