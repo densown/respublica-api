@@ -3,19 +3,19 @@
 EuGH/EuG: SPARQL (EUR-Lex Cellar) mit Fallback Scraping.
 """
 import logging
-import os
 import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
-import mysql.connector
 import requests
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
-load_dotenv('/root/apps/gesetze/.env')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 LOG_DIR = Path('/root/apps/gesetze/logs')
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -46,15 +46,6 @@ HTTP_HEADERS = {
     ),
     'Accept-Language': 'de,en;q=0.9',
 }
-
-
-def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME'),
-    )
 
 
 def sparql_date_min():
@@ -296,6 +287,7 @@ def insert_row(cur, db, row):
 
 
 def main():
+    load_env()
     log.info('Start fetch_eu_urteile')
     rows = run_sparql()
     log.info('SPARQL: %s Treffer', len(rows))
@@ -318,7 +310,7 @@ def main():
                 seen.add(e['celex'])
         log.info('Nach CURIA-Fallback: %s Treffer', len(rows))
 
-    db = get_db()
+    db = get_db(autocommit=False)
     cur = db.cursor()
     neu = 0
     for row in rows:
