@@ -1,69 +1,38 @@
 #!/usr/bin/env python3
 """
-Resiliente Variante von summarize_gesetze.py:
+Resiliente Variante des Gesetze-Summarizers (Produktions-Cron 07:00):
 - Commit per Row (kein Datenverlust bei Crash)
-- Retry mit Backoff bei HTTP 429 (Rate Limit)
+- Retry mit Backoff bei HTTP 429 via lib.groq
 - Progress alle 50 Eintraege ins Log
 - Saubere Signal-Behandlung
 """
 from __future__ import annotations
 
-import json
+import argparse
 import os
-import signal
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
-from typing import Any
 
-import mysql.connector
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parent.parent
+from lib.db import get_db
+from lib.env import load_env
+from lib.groq import GroqError, chat_completion
+from lib.log import acquire_lock, install_signal_handlers, release_lock
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 DIFF_PREVIEW_LEN = 2000
 PAUSE_SEC = 8.0
-MAX_RETRIES = 5
-BACKOFF_BASE = 10  # Sekunden, wird exponentiell
 
-UA = "gesetze-summarize/1.1-resilient"
+LOCK_NAME = "summarize_gesetze"
 
 _running = True
 
-def _signal_handler(signum, frame):
+
+def _stop() -> None:
     global _running
-    print(f"\n[SIGNAL] {signum} empfangen, beende sauber nach aktuellem Eintrag...", flush=True)
     _running = False
-
-signal.signal(signal.SIGTERM, _signal_handler)
-signal.signal(signal.SIGINT, _signal_handler)
-
-
-def load_env() -> None:
-    load_dotenv(ROOT / ".env")
-
-
-def connect():
-    host = os.environ.get("DB_HOST", "localhost")
-    user = os.environ.get("DB_USER")
-    password = os.environ.get("DB_PASSWORD", "")
-    database = os.environ.get("DB_NAME", "respublica_gesetze")
-    if not user:
-        print("Fehler: DB_USER fehlt in .env", file=sys.stderr)
-        sys.exit(1)
-    return mysql.connector.connect(
-        host=host,
-        user=user,
-        password=password,
-        database=database,
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=True,  # WICHTIG: per-row commit
-    )
 
 
 def build_user_content(kuerzel: str, diff_text: str) -> str:
@@ -78,109 +47,39 @@ def build_user_content(kuerzel: str, diff_text: str) -> str:
     )
 
 
-def groq_chat_completion(api_key: str, user_content: str) -> str:
-    body: dict[str, Any] = {
-        "model": GROQ_MODEL,
-        "messages": [{"role": "user", "content": user_content}],
-        "temperature": 0.4,
-        "max_tokens": 1024,
-    }
-    data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(
-        GROQ_URL,
-        data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "User-Agent": UA,
-        },
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        payload = json.loads(resp.read().decode("utf-8"))
-
-    choices = payload.get("choices") or []
-    if not choices:
-        err = payload.get("error") or payload
-        raise RuntimeError(f"Keine Antwort von Groq: {err!r}")
-
-    msg = choices[0].get("message") or {}
-    content = msg.get("content")
-    if not content or not isinstance(content, str):
-        raise RuntimeError("Antwort ohne Text")
-    return content.strip()
-
-
-def groq_with_retry(api_key: str, user_content: str, aid: int) -> str | None:
-    """Wiederholt bei 429 mit Backoff. Respektiert retry-after Header (max 60s).
-    Bei Anti-Abuse (retry-after > 60 oder x-should-retry=false) sofort skippen."""
-    for attempt in range(MAX_RETRIES):
-        try:
-            return groq_chat_completion(api_key, user_content)
-        except urllib.error.HTTPError as e:
-            err_body = e.read().decode("utf-8", errors="replace") if e.fp else ""
-            if e.code == 429:
-                retry_after = e.headers.get("retry-after", "")
-                should_retry = e.headers.get("x-should-retry", "true").lower()
-                # Anti-Abuse-Erkennung: lange Pause oder explizit kein retry
-                try:
-                    ra_int = int(retry_after) if retry_after else 0
-                except ValueError:
-                    ra_int = 0
-                if ra_int > 60 or should_retry == "false":
-                    print(f"  [ABUSE-LOCK] id={aid} retry-after={retry_after}s should-retry={should_retry}, GIVING UP NOW", flush=True)
-                    return None
-                # Normal: respect retry-after wenn vorhanden, sonst exp backoff
-                wait = ra_int if ra_int > 0 else BACKOFF_BASE * (2 ** attempt)
-                print(f"  [429] id={aid} attempt={attempt+1}/{MAX_RETRIES}, warte {wait}s...", flush=True)
-                time.sleep(wait)
-                continue
-            print(f"HTTP-Fehler id={aid}: {e.code} {err_body[:500]}", file=sys.stderr, flush=True)
-            return None
-        except Exception as e:
-            print(f"Groq-Fehler id={aid}: {e}", file=sys.stderr, flush=True)
-            return None
-    print(f"Aufgegeben nach {MAX_RETRIES} retries id={aid}", file=sys.stderr, flush=True)
-    return None
-
-
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Generiert fehlende Zusammenfassungen via Groq")
+    ap.add_argument("--limit", type=int, default=None, help="Max Eintraege (Default: alle)")
+    args = ap.parse_args()
+
     load_env()
-    # Single-Process-Lock
-    pid_file = ROOT / "logs" / "summarize_gesetze.pid"
-    my_pid = os.getpid()
-    if pid_file.exists():
-        try:
-            old_pid = int(pid_file.read_text().strip())
-            if old_pid != my_pid:  # nicht die eigene PID
-                os.kill(old_pid, 0)  # signal 0 = check ob Prozess existiert
-                print(f"FEHLER: Anderer Prozess laeuft bereits (PID {old_pid}). Abbruch.", file=sys.stderr)
-                return 1
-        except (OSError, ValueError):
-            pass  # PID-File stale, ok
-    pid_file.write_text(str(my_pid))
+    install_signal_handlers(_stop)
 
-
-    api_key = os.environ.get("GROQ_API_KEY", "").strip()
-    if not api_key:
-        print("Fehler: GROQ_API_KEY fehlt in .env", file=sys.stderr)
+    if not acquire_lock(LOCK_NAME):
         return 1
 
-    conn = connect()
+    if not os.environ.get("GROQ_API_KEY", "").strip():
+        print("Fehler: GROQ_API_KEY fehlt in .env", file=sys.stderr)
+        release_lock(LOCK_NAME)
+        return 1
+
+    conn = get_db(autocommit=True)  # WICHTIG: per-row commit
     generiert = 0
     fehler = 0
     start = time.time()
-    
+
     try:
         cur = conn.cursor(dictionary=True)
+        limit_clause = f"LIMIT {int(args.limit)}" if args.limit else ""
         cur.execute(
-            """
+            f"""
             SELECT a.id, a.diff, g.kuerzel AS kuerzel
             FROM aenderungen a
             INNER JOIN gesetze g ON g.id = a.gesetz_id
             WHERE (a.zusammenfassung IS NULL OR TRIM(a.zusammenfassung) = '')
               AND a.diff IS NOT NULL
               AND TRIM(a.diff) != ''
+            {limit_clause}
             """
         )
         rows = cur.fetchall()
@@ -191,7 +90,7 @@ def main() -> int:
             if not _running:
                 print(f"[STOP] Nach Signal sauber beendet bei {i}/{total}", flush=True)
                 break
-            
+
             if i:
                 time.sleep(PAUSE_SEC)
 
@@ -200,9 +99,15 @@ def main() -> int:
             kuerzel = row["kuerzel"] or ""
             user_content = build_user_content(kuerzel, diff_text)
 
-            text = groq_with_retry(api_key, user_content, aid)
-            
-            if not text:
+            try:
+                text = chat_completion(
+                    [{"role": "user", "content": user_content}],
+                    model=GROQ_MODEL,
+                    max_tokens=1024,
+                    temperature=0.4,
+                )
+            except GroqError as e:
+                print(f"Groq-Fehler id={aid}: {e}", file=sys.stderr, flush=True)
                 fehler += 1
                 continue
 
@@ -227,6 +132,7 @@ def main() -> int:
 
     finally:
         conn.close()
+        release_lock(LOCK_NAME)
 
     elapsed = time.time() - start
     print(f"\n[FERTIG] generiert={generiert} fehler={fehler} dauer={elapsed/60:.1f}min", flush=True)
