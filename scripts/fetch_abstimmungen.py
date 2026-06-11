@@ -10,7 +10,6 @@ Nach jedem Poll: conn.commit(), am Ende ein weiteres commit().
 from __future__ import annotations
 
 import json
-import os
 import sys
 import urllib.error
 import urllib.parse
@@ -21,9 +20,11 @@ from pathlib import Path
 from typing import Any
 
 import mysql.connector
-from dotenv import load_dotenv
 
-ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 BASE = "https://www.abgeordnetenwatch.de/api/v2"
 LEGISLATURE = 161
@@ -31,30 +32,6 @@ POLL_PAGE = 100
 VOTES_PAGE = 1000
 
 UA = "gesetze-fetch/1.0 (+https://github.com/bundestag/gesetze)"
-
-
-def load_env() -> None:
-    load_dotenv(ROOT / ".env")
-
-
-def connect():
-    host = os.environ.get("DB_HOST", "localhost")
-    user = os.environ.get("DB_USER")
-    password = os.environ.get("DB_PASSWORD", "")
-    database = os.environ.get("DB_NAME", "respublica_gesetze")
-    if not user:
-        print("Fehler: DB_USER fehlt in .env", file=sys.stderr)
-        sys.exit(1)
-    conn = mysql.connector.connect(
-        host=host,
-        user=user,
-        password=password,
-        database=database,
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=False,
-    )
-    return conn
 
 
 def fetch_json(url: str) -> dict[str, Any]:
@@ -188,7 +165,7 @@ def main() -> int:
         print(f"Abstimmungen konnten nicht geladen werden: {e}", file=sys.stderr)
         return 1
 
-    conn = connect()
+    conn = get_db(autocommit=False)
     neue_abstimmungen_polls: set[int] = set()
     neue_votes_summe = 0
 
