@@ -4,11 +4,16 @@ Verknüpft deutsche Gerichtsurteile mit Gesetzen über Kürzel-Erkennung.
 Scannt leitsatz, tenor, zusammenfassung, auswirkung nach bekannten Gesetzeskürzeln.
 Schreibt in urteil_gesetze (urteil_id, gesetz_kuerzel).
 """
-import os, re, time
-import mysql.connector
-from dotenv import load_dotenv
+import re
+import sys
+import time
+from pathlib import Path
 
-load_dotenv('/root/apps/gesetze/.env')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
+
 LOG = '/root/apps/gesetze/logs/match_urteile_gesetze.log'
 
 def log(msg):
@@ -17,13 +22,9 @@ def log(msg):
     with open(LOG, 'a', encoding='utf-8') as f:
         f.write(line + '\n')
 
-def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'), user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'), database=os.getenv('DB_NAME'))
-
 def main():
-    conn = get_db()
+    load_env()
+    conn = get_db(autocommit=False)
     cur = conn.cursor()
 
     # Alle Kürzel laden (längere zuerst, damit z.B. "VwGO" vor "GO" matcht)
