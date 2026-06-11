@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
-import os, re, requests, mysql.connector
+import re
+import sys
+from pathlib import Path
+
+import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
-from dotenv import load_dotenv
 
-load_dotenv('/root/apps/gesetze/.env')
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 FEEDS = {
     'BVerfG': 'https://www.rechtsprechung-im-internet.de/jportal/docs/feed/bsjrs-bverfg.xml',
@@ -15,14 +21,6 @@ FEEDS = {
     'BSG':    'https://www.rechtsprechung-im-internet.de/jportal/docs/feed/bsjrs-bsg.xml',
     'BPatG':  'https://www.rechtsprechung-im-internet.de/jportal/docs/feed/bsjrs-bpatg.xml',
 }
-
-def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME')
-    )
 
 def parse_title(title, gericht):
     # "BGH 6a. Zivilsenat, Urteil vom 17.03.2026, VIa ZR 110/23"
@@ -52,7 +50,8 @@ def fetch_tenor(doc_id):
     return None
 
 def main():
-    db = get_db()
+    load_env()
+    db = get_db(autocommit=False)
     cur = db.cursor()
     neu = 0
 
