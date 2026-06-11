@@ -154,13 +154,16 @@ Hinweis News: Die News-Pipeline (`/api/news*`, `modules/newsFetcher.js`, `module
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
 | 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen` |
 | 06:15 | `fetch_bgbl.py` | BGBl-Aktualitätendienst → `bgbl_referenz` an `aenderungen` |
-| 06:20 | `match_abstimmungen.py` | Verknüpfung Abstimmungen mit `aenderungen` (DIP/API) |
-| 06:25 | `summarize_gesetze.py` | Groq-Zusammenfassungen für Änderungen |
-| 06:30 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |
-| 06:40 | `summarize_urteile.py` | Groq-Zusammenfassungen Urteile |
-| 06:45 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
-| 06:55 | `summarize_eu_urteile.py` | Groq-Zusammenfassungen EU-Urteile |
-| 05:30 | `fetch_lobbyregister.py` | Lobbyregister-Import (`sucheDetailJson`) → `lobbyregister` |
+| 06:20 | `fetch_lobbyregister.py` | Lobbyregister-Import (`sucheDetailJson`) → `lobbyregister` |
+| 06:25 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |
+| 06:30 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
+| 06:35 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
+| 06:45 | `match_abstimmungen.py` | Verknüpfung Abstimmungen mit `aenderungen` (DIP/API) |
+| 06:50 | `match_lobby_gesetze.py` | Verknüpfung Lobbyregister ↔ `gesetze` |
+| 06:55 | `match_urteile_gesetze.py` | Verknüpfung Urteile ↔ `gesetze` |
+| 07:00 | `summarize_gesetze_resilient.py` | Groq-Zusammenfassungen für Änderungen (Retry + Backoff, per-Row-Commit) |
+| 07:10 | `summarize_urteile.py` | Groq-Zusammenfassungen Urteile |
+| So 03:00 | `weekly_resummarize.sh` | Weekly Resummarize (Claude CLI, bilingual, Qualitätskorrektur) |
 | 03:30 | `backup_gesetze_db.sh` | Tägliches `mysqldump`-Backup `respublica_gesetze` nach `/root/backups/gesetze/` (7 Tage Retention; `trade_flows_v2` sonntags separat, 28 Tage) |
 | */5 | `pm2 jlist` | Schreibt `/root/apps/gesetze/data/pm2-status.json` |
 
@@ -213,8 +216,10 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `resummarize_rechtsakte.py` | EU-Rechtsakte neu zusammenfassen (Claude) |
 | `summarize_eu_recht.py` | KI-Zusammenfassungen `eu_rechtsakte` (Groq) |
 | `summarize_eu_urteile.py` | KI-Zusammenfassungen `eu_urteile` DE/EN (Groq) |
-| `summarize_gesetze.py` | Kurz-Zusammenfassungen `aenderungen` (Groq) |
+| `summarize_gesetze_resilient.py` | Kurz-Zusammenfassungen `aenderungen` (Groq, Retry + Backoff, `--limit N`) — Produktions-Cron 07:00 |
+| `summarize_gesetze_claude.py` | DE+EN-Zusammenfassungen `aenderungen` (Claude CLI, Max Plan) — manuelles Qualitäts-Tool |
 | `summarize_urteile.py` | Kurz-Zusammenfassungen Bundesgerichte (Groq) |
+| `_archive/summarize_gesetze.py` | Alte Basis-Variante ohne Retry (ersetzt durch `summarize_gesetze_resilient.py`) |
 | `backup_gesetze_db.sh` | Tägliches DB-Backup `respublica_gesetze` (Cron 03:30, Retention 7/28 Tage) |
 
 ## 7. Logs
@@ -223,4 +228,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 11. Juni 2026 (Refactoring Phase 0: News-Pipeline entfernt [Routen `/api/news*`, `modules/`, `news_items`], Legacy-Tabellen `trade_flows`/`gesetze_fix_test`/`lobby_gesetze_backup_*` gedroppt, tägliches DB-Backup + Logrotation eingerichtet; Phase 1 B1: gemeinsame Library `scripts/lib/` [env, db, log, groq] erstellt)
+**Zuletzt aktualisiert:** 11. Juni 2026 (Refactoring Phase 0: News-Pipeline entfernt [Routen `/api/news*`, `modules/`, `news_items`], Legacy-Tabellen `trade_flows`/`gesetze_fix_test`/`lobby_gesetze_backup_*` gedroppt, tägliches DB-Backup + Logrotation eingerichtet; Phase 1 B1: gemeinsame Library `scripts/lib/` [env, db, log, groq] erstellt; Phase 1 B5: Summarizer konsolidiert — `summarize_gesetze_resilient.py` ist Produktions-Cron 07:00, alte Basis-Variante nach `scripts/_archive/`, Cron-Tabelle mit realem Crontab abgeglichen)
