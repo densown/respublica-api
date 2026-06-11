@@ -21,10 +21,10 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
-import mysql.connector
-from dotenv import load_dotenv
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-ROOT = Path(__file__).resolve().parent.parent
+from lib.db import get_db
+from lib.env import load_env
 
 DIP_BASE = "https://search.dip.bundestag.de/api/v1/vorgang"
 # Öffentlicher DIP-Schlüssel (bund.dev / DIP-Hilfe); gültig bis ca. 05/2026.
@@ -35,29 +35,6 @@ MIN_SCORE = 0.28
 DIP_MAX_PAGES = 40
 
 UA = "gesetze-match-abstimmungen/1.0"
-
-
-def load_env() -> None:
-    load_dotenv(ROOT / ".env")
-
-
-def connect():
-    host = os.environ.get("DB_HOST", "localhost")
-    user = os.environ.get("DB_USER")
-    password = os.environ.get("DB_PASSWORD", "")
-    database = os.environ.get("DB_NAME", "respublica_gesetze")
-    if not user:
-        print("Fehler: DB_USER fehlt in .env", file=sys.stderr)
-        sys.exit(1)
-    return mysql.connector.connect(
-        host=host,
-        user=user,
-        password=password,
-        database=database,
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=False,
-    )
 
 
 def norm_text(s: str | None) -> str:
@@ -281,7 +258,7 @@ def main() -> int:
     load_env()
     apikey = os.environ.get("DIP_API_KEY", DIP_APIKEY)
 
-    conn = connect()
+    conn = get_db(autocommit=False)
     matched = 0
     try:
         cur = conn.cursor(dictionary=True)
