@@ -3,31 +3,13 @@
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
-const mysql = require("mysql2/promise");
 
+const { getPool, DB_NAME } = require("./lib/db");
 const { asyncHandler, notFoundHandler, errorHandler } = require("./lib/errors");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
 const PORT = Number.parseInt(process.env.PORT || "3002", 10);
-const DB_NAME = process.env.DB_NAME || "respublica_gesetze";
-
-let pool;
-
-function getPool() {
-  if (!pool) {
-    pool = mysql.createPool({
-      host: process.env.DB_HOST || "localhost",
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD || "",
-      database: DB_NAME,
-      waitForConnections: true,
-      connectionLimit: 10,
-      charset: "utf8mb4",
-    });
-  }
-  return pool;
-}
 
 async function ensureAbstimmungenPollIdIndex() {
   const sql = `
