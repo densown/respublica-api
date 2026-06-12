@@ -1,0 +1,5 @@
+# Geo-Stack für import_koeppen_geiger.py
+# Läuft in separater venv: scripts/venv-koeppen/
+numpy
+rasterio
+geopandas
