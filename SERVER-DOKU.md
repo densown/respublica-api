@@ -143,7 +143,9 @@ Hinweis: Die Tabellen `world_indicators` und `world_indicator_meta` bleiben als 
 
 Hinweis News: Die News-Pipeline (`/api/news*`, `modules/newsFetcher.js`, `modules/newsSummarizer.js`, Tabelle `news_items`) wurde am 11.06.2026 vollständig entfernt (tot seit 17.04.2026, vom Dashboard nie genutzt). Finales Daten-Backup: `/root/backups/gesetze/news_items_final_20260611.sql.gz`.
 
-## 5. Cronjobs (root, Stand 7. April 2026)
+## 5. Cronjobs (root, Stand 12. Juni 2026)
+
+Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` nutzen **`.venv/bin/python3`** (`/root/apps/gesetze/.venv`). Abhängigkeiten: `requirements.txt` (Haupt-venv), Geo-Stack separat in `requirements-geo.txt` → `scripts/venv-koeppen/`.
 
 ## DB-Performance-Hinweis
 
@@ -231,4 +233,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 12. Juni 2026 (Refactoring Phase 2 C1: zentrale Error-Middleware `api/lib/errors.js` [asyncHandler, JSON-404-Fallback, zentraler 500er], ~54 try/catch-Blöcke aus `api/index.js` entfernt, `e.message`-Leak der 2 Trade-Routen gefixt, Snapshot-Skript `scripts/api_snapshot.sh` für Refactoring-Verifikation; davor Phase 0: News-Pipeline entfernt, Legacy-Tabellen gedroppt, DB-Backup + Logrotation; Phase 1 B1: `scripts/lib/` [env, db, log, groq]; Phase 1 B5: Summarizer konsolidiert — `summarize_gesetze_resilient.py` ist Produktions-Cron 07:00, Quota-Abbruch eingebaut)
+**Zuletzt aktualisiert:** 12. Juni 2026 (Refactoring Phase 1 B3: hardcodierte DB-Credentials aus 6 Import/Migration-Skripten entfernt; B4: `requirements.txt` ergänzt [bs4, duckdb], `requirements-geo.txt` neu, gesamte Cron-Pipeline + `weekly_resummarize.sh` auf `.venv/bin/python3`; Phase 2 C1: Error-Middleware; Phase 1 B5: Summarizer konsolidiert mit Quota-Abbruch)
