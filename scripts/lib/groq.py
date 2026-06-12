@@ -18,7 +18,15 @@ UA = "gesetze-lib-groq/1.0"
 
 
 class GroqError(RuntimeError):
-    """Nicht-retrybarer Groq-Fehler (Anti-Abuse, HTTP-Fehler, leere Antwort)."""
+    """Nicht-retrybarer Groq-Fehler (Anti-Abuse, HTTP-Fehler, leere Antwort).
+
+    quota_exhausted=True bei Anti-Abuse-Sperre (Tageskontingent erschoepft):
+    retry-after > 60s oder x-should-retry: false.
+    """
+
+    def __init__(self, message: str, quota_exhausted: bool = False):
+        super().__init__(message)
+        self.quota_exhausted = quota_exhausted
 
 
 def _request(api_key: str, body: dict[str, Any]) -> requests.Response:
@@ -85,7 +93,8 @@ def chat_completion(
             if ra_int > 60 or should_retry == "false":
                 raise GroqError(
                     f"Anti-Abuse-Lock: retry-after={retry_after}s "
-                    f"should-retry={should_retry}, kein Retry"
+                    f"should-retry={should_retry}, kein Retry",
+                    quota_exhausted=True,
                 )
             # Normal: respect retry-after wenn vorhanden, sonst exp backoff
             wait = ra_int if ra_int > 0 else BACKOFF_BASE * (2 ** attempt)

@@ -24,6 +24,7 @@ from lib.log import acquire_lock, install_signal_handlers, release_lock
 GROQ_MODEL = "llama-3.3-70b-versatile"
 DIFF_PREVIEW_LEN = 2000
 PAUSE_SEC = 8.0
+QUOTA_ABORT_AFTER = 10  # Abbruch nach so vielen Quota-Fehlern in Folge
 
 LOCK_NAME = "summarize_gesetze"
 
@@ -66,6 +67,7 @@ def main() -> int:
     conn = get_db(autocommit=True)  # WICHTIG: per-row commit
     generiert = 0
     fehler = 0
+    consecutive_quota_errors = 0
     start = time.time()
 
     try:
@@ -99,6 +101,7 @@ def main() -> int:
             kuerzel = row["kuerzel"] or ""
             user_content = build_user_content(kuerzel, diff_text)
 
+            text = None
             try:
                 text = chat_completion(
                     [{"role": "user", "content": user_content}],
@@ -106,26 +109,38 @@ def main() -> int:
                     max_tokens=1024,
                     temperature=0.4,
                 )
+                consecutive_quota_errors = 0
             except GroqError as e:
                 print(f"Groq-Fehler id={aid}: {e}", file=sys.stderr, flush=True)
                 fehler += 1
-                continue
+                if e.quota_exhausted:
+                    consecutive_quota_errors += 1
+                    if consecutive_quota_errors >= QUOTA_ABORT_AFTER:
+                        print(
+                            f"[QUOTA] Tagesbudget erschoepft nach {generiert} generierten, beende Lauf",
+                            flush=True,
+                        )
+                        break
+                else:
+                    consecutive_quota_errors = 0
 
-            # Per-row UPDATE + autocommit
-            cur.execute(
-                "UPDATE aenderungen SET zusammenfassung = %s WHERE id = %s",
-                (text, aid),
-            )
-            if cur.rowcount:
-                generiert += 1
+            if text:
+                # Per-row UPDATE + autocommit
+                cur.execute(
+                    "UPDATE aenderungen SET zusammenfassung = %s WHERE id = %s",
+                    (text, aid),
+                )
+                if cur.rowcount:
+                    generiert += 1
 
-            # Progress alle 50 Eintraege
-            if (i + 1) % 50 == 0:
+            # Progress alle 50 verarbeitete Eintraege (ok + fehler)
+            verarbeitet = generiert + fehler
+            if verarbeitet and verarbeitet % 50 == 0:
                 elapsed = time.time() - start
-                rate = (i + 1) / elapsed * 60  # pro Minute
+                rate = verarbeitet / elapsed * 60  # pro Minute
                 eta_min = (total - i - 1) / rate if rate > 0 else 0
                 print(
-                    f"[{i+1}/{total}] ok={generiert} fehler={fehler} "
+                    f"[{verarbeitet}/{total}] ok={generiert} fehler={fehler} "
                     f"rate={rate:.1f}/min eta={eta_min:.0f}min",
                     flush=True,
                 )
