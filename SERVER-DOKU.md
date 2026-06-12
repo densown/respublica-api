@@ -2,7 +2,25 @@
 
 ## 1. Übersicht
 
-Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `scripts/`, MariaDB-Datenbank **`respublica_gesetze`**. Produktivbetrieb API: **PM2**, Prozessname **`api`**, Skript `/root/apps/gesetze/api/index.js`.
+Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `scripts/`, MariaDB-Datenbank **`respublica_gesetze`**. Produktivbetrieb API: **PM2**, Prozessname **`api`**, Einstieg `/root/apps/gesetze/api/index.js` (Bootstrap: Middleware, Router-Mounts, Error-Handler).
+
+### API-Dateistruktur (Phase 2 C2)
+
+| Pfad | Inhalt |
+|------|--------|
+| `api/index.js` | Bootstrap: CORS, JSON, Router-Mounts, `listen` |
+| `api/lib/db.js` | `getPool()`, `DB_NAME` |
+| `api/lib/errors.js` | `asyncHandler`, `notFoundHandler`, `errorHandler` |
+| `api/lib/helpers.js` | Geteilte Helfer (`formatDate`, …) |
+| `api/routes/gesetze.js` | `/api/gesetze*` |
+| `api/routes/bundestag.js` | `/api/bundestag*`, `/api/abgeordnete*`, `/api/abstimmungen*` |
+| `api/routes/urteile.js` | `/api/urteile*` |
+| `api/routes/eu.js` | `/api/eu-recht*`, `/api/eu-urteile*` |
+| `api/routes/lobby.js` | `/api/lobbyregister*`, `/api/lobby-projects*` |
+| `api/routes/wahlen.js` | `/api/wahlen*` |
+| `api/routes/world.js` | `/api/world*` |
+
+Alle Router werden per `app.use("/api", router)` gemountet; Routen definieren Pfade ohne `/api`-Prefix.
 
 ## 2. Umgebung
 
@@ -78,7 +96,7 @@ DDL: `migrations/002_abgeordnete.sql`
 
 ## 4. HTTP-API
 
-Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`PUT`/`DELETE`-Routen in dieser Datei.
+Alle Routen sind **GET**-Endpunkte in `api/routes/*.js`; keine `POST`/`PUT`/`DELETE`-Routen. DB-Zugriff über `api/lib/db.js` (`getPool`).
 
 Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): jeder async Handler ist in `asyncHandler` gewickelt, unbekannte Routen liefern JSON-404 (`{"error":"Nicht gefunden"}`), Fehler landen in der zentralen Error-Middleware (Log mit Methode+URL, generischer 500 `{"error":"Datenbankfehler"}`). 400er-Validierungen bleiben in den Handlern. Verifikation per Response-Snapshot: `scripts/api_snapshot.sh <out-dir>` curlt alle Routen (Happy Path + Invalid-Cases) und legt Body+HTTP-Code als Dateien ab — zwei Läufe vor/nach einer Änderung per `diff -r` vergleichen.
 
@@ -233,4 +251,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 12. Juni 2026 (Refactoring Phase 1 B3: hardcodierte DB-Credentials aus 6 Import/Migration-Skripten entfernt; B4: `requirements.txt` ergänzt [bs4, duckdb], `requirements-geo.txt` neu, gesamte Cron-Pipeline + `weekly_resummarize.sh` auf `.venv/bin/python3`; Phase 2 C1: Error-Middleware; Phase 1 B5: Summarizer konsolidiert mit Quota-Abbruch)
+**Zuletzt aktualisiert:** 12. Juni 2026 (Refactoring Phase 2 C2: `api/index.js` in Domain-Router unter `api/routes/` zerlegt, `api/lib/db.js` + `api/lib/helpers.js`; Phase 2 C1: Error-Middleware; Phase 1 B3–B5)
