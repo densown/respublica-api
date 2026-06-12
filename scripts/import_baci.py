@@ -11,12 +11,17 @@ Usage:
 import argparse
 import json
 import os
+import sys
 import tempfile
 import time
 from pathlib import Path
 
 import duckdb
-import mysql.connector
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 
 BACI_DIR = Path("/root/data/baci")
@@ -24,16 +29,6 @@ COUNTRY_CODES_CSV = BACI_DIR / "country_codes_V202601.csv"
 YEAR_FILE_PATTERN = "BACI_HS17_Y{year}_V202601.csv"
 VALID_YEARS = list(range(2017, 2025))
 SOURCE_SLUG = "cepii_baci_hs17"
-
-DB_CONFIG = {
-    "unix_socket": "/var/run/mysqld/mysqld.sock",
-    "user": "root",
-    "password": "",
-    "database": "respublica_gesetze",
-    "use_pure": True,
-    "allow_local_infile": True,
-}
-
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -76,7 +71,8 @@ def ensure_input_files(years):
 
 
 def get_db_connection():
-    return mysql.connector.connect(**DB_CONFIG)
+    load_env()
+    return get_db(autocommit=False, allow_local_infile=True)
 
 
 def fetch_source_id(cur):

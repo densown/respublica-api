@@ -13,7 +13,7 @@ import mysql.connector
 UNIX_SOCKET_DEFAULT = "/var/run/mysqld/mysqld.sock"
 
 
-def get_db(autocommit: bool = True):
+def get_db(autocommit: bool = True, *, allow_local_infile: bool = False):
     """Verbindet zur DB: erst TCP via DB_HOST, bei Fehler Unix-Socket-Fallback."""
     kw: dict = dict(
         user=os.environ.get("DB_USER", "root"),
@@ -23,6 +23,8 @@ def get_db(autocommit: bool = True):
         collation="utf8mb4_unicode_ci",
         autocommit=autocommit,
     )
+    if allow_local_infile:
+        kw["allow_local_infile"] = True
     try:
         return mysql.connector.connect(
             host=os.environ.get("DB_HOST", "localhost"), **kw

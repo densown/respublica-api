@@ -5,15 +5,12 @@ Importiert 8 Kern-Indikatoren in world_indicators / world_indicator_meta
 """
 import csv
 import sys
-import mysql.connector
+from pathlib import Path
 
-DB = dict(
-    unix_socket="/var/run/mysqld/mysqld.sock",
-    use_pure=True,
-    user="root",
-    password="",
-    database="respublica_gesetze",
-)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 INDICATORS = {
     "v2x_libdem":        ("Liberal Democracy Index",     "democracy", "Index 0-1", "Liberaler Demokratie-Index (0=autoritär, 1=voll demokratisch)", "Liberal Democracy Index (0=authoritarian, 1=fully democratic)"),
@@ -31,8 +28,9 @@ SOURCE_URL = "https://v-dem.net/data/the-v-dem-dataset/"
 CSV_PATH = sys.argv[1] if len(sys.argv) > 1 else "/root/data/vdem.csv"
 
 def main():
+    load_env()
     print(f"Verbinde mit DB...")
-    conn = mysql.connector.connect(**DB)
+    conn = get_db(autocommit=False)
     cur = conn.cursor()
 
     print("Schreibe Metadaten...")

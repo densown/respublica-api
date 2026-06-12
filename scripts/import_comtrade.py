@@ -3,25 +3,20 @@
 UN Comtrade Import Script v2
 Lädt Top-Handelspartner für wichtige Länder
 """
-import time, sys, json
-import mysql.connector
-try:
-    import requests
-except ImportError:
-    import subprocess
-    subprocess.run([sys.executable, "-m", "pip", "install", "requests", "--break-system-packages"])
-    import requests
+import json
+import sys
+import time
+from pathlib import Path
+
+import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.db import get_db
+from lib.env import load_env
 
 API_KEY = "809bb81f740e4045a0d7338a02a934c2"
 BASE_URL = "https://comtradeapi.un.org/data/v1/get/C/A/HS"
-
-DB = dict(
-    unix_socket="/var/run/mysqld/mysqld.sock",
-    user="root",
-    password="",
-    database="respublica_gesetze",
-    use_pure=True,
-)
 
 COUNTRIES = {
     "DEU": "276", "USA": "842", "CHN": "156", "FRA": "250", "GBR": "826",
@@ -67,7 +62,8 @@ def num_to_iso3(num_code):
     return lookup.get(str(num_code).zfill(3), str(num_code))
 
 def main():
-    conn = mysql.connector.connect(**DB)
+    load_env()
+    conn = get_db(autocommit=False)
     cur = conn.cursor()
     total = 0
     countries = list(COUNTRIES.items())
