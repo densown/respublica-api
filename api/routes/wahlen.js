@@ -244,13 +244,12 @@ router.get("/wahlen/ranking", asyncHandler(async (req, res) => {
     order +
     " LIMIT ?";
   const [rows] = await getPool().query(sql, [typ, year, limit]);
-  let rank = 1;
   const out = rows.map((r, i) => ({
     ags: r.ags,
     name: r.ags_name,
     state_name: r.state_name,
     value: Number(r.value),
-    rank: order === "DESC" ? i + 1 : i + 1,
+    rank: i + 1,
   }));
   res.json(out);
 }));
