@@ -80,6 +80,8 @@ DDL: `migrations/002_abgeordnete.sql`
 
 Alle Routen in `api/index.js` sind **GET**-Endpunkte (`app.get`); keine `POST`/`PUT`/`DELETE`-Routen in dieser Datei.
 
+Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): jeder async Handler ist in `asyncHandler` gewickelt, unbekannte Routen liefern JSON-404 (`{"error":"Nicht gefunden"}`), Fehler landen in der zentralen Error-Middleware (Log mit Methode+URL, generischer 500 `{"error":"Datenbankfehler"}`). 400er-Validierungen bleiben in den Handlern. Verifikation per Response-Snapshot: `scripts/api_snapshot.sh <out-dir>` curlt alle Routen (Happy Path + Invalid-Cases) und legt Body+HTTP-Code als Dateien ab — zwei Läufe vor/nach einer Änderung per `diff -r` vergleichen.
+
 | Methode | Pfad | Kurzbeschreibung |
 |---------|------|------------------|
 | GET | `/api/gesetze` | Liste Gesetzesänderungen (ohne Diff), inkl. GII-Felder `titel`, `amtliche_abkuerzung`, `ausfertigung_datum`, … |
@@ -221,6 +223,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `summarize_urteile.py` | Kurz-Zusammenfassungen Bundesgerichte (Groq) |
 | `_archive/summarize_gesetze.py` | Alte Basis-Variante ohne Retry (ersetzt durch `summarize_gesetze_resilient.py`) |
 | `backup_gesetze_db.sh` | Tägliches DB-Backup `respublica_gesetze` (Cron 03:30, Retention 7/28 Tage) |
+| `api_snapshot.sh` | Response-Snapshot aller API-Routen für Refactoring-Verifikation (`diff -r` vor/nach) |
 
 ## 7. Logs
 
@@ -228,4 +231,4 @@ Cron-/Import-Ausgaben: `logs/cron.log`; GII-Sync: `logs/gii_sync_YYYY-MM-DD.log`
 
 ---
 
-**Zuletzt aktualisiert:** 11. Juni 2026 (Refactoring Phase 0: News-Pipeline entfernt [Routen `/api/news*`, `modules/`, `news_items`], Legacy-Tabellen `trade_flows`/`gesetze_fix_test`/`lobby_gesetze_backup_*` gedroppt, tägliches DB-Backup + Logrotation eingerichtet; Phase 1 B1: gemeinsame Library `scripts/lib/` [env, db, log, groq] erstellt; Phase 1 B5: Summarizer konsolidiert — `summarize_gesetze_resilient.py` ist Produktions-Cron 07:00, alte Basis-Variante nach `scripts/_archive/`, Cron-Tabelle mit realem Crontab abgeglichen)
+**Zuletzt aktualisiert:** 12. Juni 2026 (Refactoring Phase 2 C1: zentrale Error-Middleware `api/lib/errors.js` [asyncHandler, JSON-404-Fallback, zentraler 500er], ~54 try/catch-Blöcke aus `api/index.js` entfernt, `e.message`-Leak der 2 Trade-Routen gefixt, Snapshot-Skript `scripts/api_snapshot.sh` für Refactoring-Verifikation; davor Phase 0: News-Pipeline entfernt, Legacy-Tabellen gedroppt, DB-Backup + Logrotation; Phase 1 B1: `scripts/lib/` [env, db, log, groq]; Phase 1 B5: Summarizer konsolidiert — `summarize_gesetze_resilient.py` ist Produktions-Cron 07:00, Quota-Abbruch eingebaut)
