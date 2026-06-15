@@ -374,15 +374,17 @@ def df_to_rows(df: pd.DataFrame):
 def insert_rows(conn, rows):
     cur = conn.cursor()
     n = 0
+    errs = 0
     for d in rows:
         try:
             cur.execute(INSERT_SQL, d)
             n += cur.rowcount
         except Exception as e:
+            errs += 1
             print("INSERT error:", e, d.get("typ"), d.get("ags"), d.get("election_year"), file=sys.stderr)
     conn.commit()
     cur.close()
-    return n
+    return n, errs
 
 
 def classify_csv(path: Path):
@@ -420,6 +422,7 @@ def main():
 
     conn = get_db()
     total_inserts = 0
+    total_errors = 0
     cur = conn.cursor()
     cur.execute(
         "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'wahlen'"
@@ -439,7 +442,9 @@ def main():
                 continue
             print("federal", p.name)
             df = federal_frame(p)
-            total_inserts += insert_rows(conn, df_to_rows(df))
+            ins, err = insert_rows(conn, df_to_rows(df))
+            total_inserts += ins
+            total_errors += err
 
         for p in all_csv:
             typ, _agg = classify_csv(p)
@@ -451,11 +456,16 @@ def main():
             else:
                 raw = pd.read_csv(p, low_memory=False)
                 df = aggregate_to_kreis(raw, typ)
-            total_inserts += insert_rows(conn, df_to_rows(df))
+            ins, err = insert_rows(conn, df_to_rows(df))
+            total_inserts += ins
+            total_errors += err
     finally:
         conn.close()
 
     print("Rowcount sum from inserts:", total_inserts)
+    if total_errors:
+        print("%d Insert-Fehler — Import unvollständig" % total_errors, file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

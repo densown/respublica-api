@@ -81,8 +81,8 @@ def main() -> int:
             if kuerzel:
                 try:
                     cur.execute('INSERT IGNORE INTO urteil_gesetze (urteil_id, gesetz_kuerzel) VALUES (%s, %s)', (uid, kuerzel))
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f'  WARN urteil_gesetze mapping {uid}->{kuerzel} failed: {e}', file=sys.stderr)
 
         db.commit()
 
