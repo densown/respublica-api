@@ -22,7 +22,28 @@ process.on("uncaughtException", (err) => {
 const PORT = Number.parseInt(process.env.PORT || "3002", 10);
 
 const app = express();
-app.use(cors());
+
+// Erlaubte Browser-Origins. Das Dashboard (app.respublica.media) ruft die API
+// cross-origin unter api.respublica.media auf (VITE_API_BASE), daher ist CORS
+// hier wirklich noetig. Requests ohne Origin (curl, Uptime-Checks, Server-zu-
+// Server) werden durchgelassen. Die API ist read-only/public -> CORS ist Hygiene.
+const ALLOWED_ORIGINS = new Set([
+  "https://app.respublica.media",
+  "https://staging.respublica.media",
+  "https://respublica.media",
+  "https://www.respublica.media",
+  "http://localhost:5173", // vite dev
+  "http://localhost:4173", // vite preview
+]);
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || ALLOWED_ORIGINS.has(origin)) return cb(null, true);
+      return cb(null, false); // kein ACAO-Header -> Browser blockt, kein Fehler
+    },
+    methods: ["GET"],
+  })
+);
 app.use(express.json());
 
 // Health-Check fuer PM2/Monitoring (pruegt DB-Erreichbarkeit).
