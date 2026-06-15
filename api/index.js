@@ -67,6 +67,11 @@ app.use("/api", require("./routes/world"));
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-  console.log(`API listening on port ${PORT}`);
-});
+// Nur lauschen, wenn direkt gestartet (nicht beim Import durch Tests).
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`API listening on port ${PORT}`);
+  });
+}
+
+module.exports = app;
