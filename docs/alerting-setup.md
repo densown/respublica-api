@@ -1,7 +1,14 @@
 # Alerting-Setup (M-005)
 
-Status: **wartet auf Account-Anlage durch Luca.** Sobald die unten markierten
-Werte vorliegen, verdrahtet Claude Cron + Doku (Pipeline-Pings final mit M-009).
+Status:
+- **Healthchecks.io (Cron): ✅ verdrahtet & getestet** (3 Checks, Pings erreichen HC mit 200).
+- **UptimeRobot (API-Uptime): ⏳ offen** — von Luca anzulegen (rein externe Config, kein Code).
+
+> **Sicherheit:** Die Ping-URLs (UUIDs) sind **bewusst NICHT in Git**. Wer eine Ping-URL
+> kennt, kann gefälschte success/fail-Pings senden und so das Monitoring aushebeln.
+> Sie liegen daher nur in der System-Crontab (`crontab -e`), in `/etc/cron.d/gesetze-sync`
+> und – fürs Backup – als `HC_PING_BACKUP=`-Env in der crontab-Zeile. **Nicht** in dieses
+> (versionierte) Dokument eintragen.
 
 ## Entscheidung (begründet im Refactoring-Plan)
 
@@ -12,34 +19,30 @@ Werte vorliegen, verdrahtet Claude Cron + Doku (Pipeline-Pings final mit M-009).
 - Zustellung an `res.publica.magazin@gmail.com`; für „API down" zusätzlich Telegram
   in UptimeRobot aktivieren (Push wird eher gesehen als Mail).
 
-## Was Luca anlegen muss
+## ✅ Healthchecks.io (erledigt)
 
-### 1. Healthchecks.io (kostenlos, https://healthchecks.io)
-Account anlegen, dann **3 Checks** erstellen und je die Ping-URL kopieren:
+3 Checks angelegt; die Pings sind verdrahtet:
 
-| Check-Name | Schedule (Grace) | Ping-URL hier eintragen |
+| Check | Schedule (Grace) | Verdrahtung |
 |---|---|---|
-| `respublica-daily-pipeline` | täglich, erwartet ~07:15 UTC (Grace 30 min) | `PING_URL_PIPELINE=` |
-| `respublica-gii-sync`       | täglich, erwartet ~04:15 UTC (Grace 30 min) | `PING_URL_GII=` |
-| `respublica-db-backup`      | täglich, erwartet ~03:45 UTC (Grace 30 min) | `PING_URL_BACKUP=` |
+| `respublica-daily-pipeline` | täglich ~07:15 UTC (Grace 30 min) | crontab: `/start` am ersten Job (06:00 `bundestag_gesetze_diffs.py`), Erfolg/`/fail` am letzten Job (07:10 `summarize_urteile.py`) |
+| `respublica-gii-sync` | täglich ~04:15 UTC (Grace 30 min) | `/etc/cron.d/gesetze-sync`: Erfolg/`/fail` nach `gii_sync.py` |
+| `respublica-db-backup` | täglich ~03:45 UTC (Grace 30 min) | `HC_PING_BACKUP`-Env in der crontab-Zeile; `backup_gesetze_db.sh` pingt selbst (Trap → `/fail`, Erfolg am Ende) |
 
-E-Mail-Integration (Standard) aktiv lassen; optional Telegram hinzufügen.
+**Hinweis (mit M-009 finalisieren):** Erfolg/`/fail` am letzten Pipeline-Job hängt am
+Exit-Code von `summarize_urteile.py`. Bis M-009 verlässliche Exit-Codes liefert, fungiert
+das v.a. als Liveness-Signal (Pipeline hat ~07:10 erreicht, Server/Cron leben). Echte
+Mid-Pipeline-Fehlererkennung folgt mit M-009.
 
-### 2. UptimeRobot (kostenlos, https://uptimerobot.com)
-Einen **HTTP(s)-Monitor** anlegen:
-- URL: `https://api.respublica.media/api/health`
-- Intervall: 5 min
-- Alert-Kontakte: Gmail (+ optional Telegram)
-- Optional „Keyword"-Monitor: erwartet den String `"ok"` im Body.
+## ⏳ Noch zu tun: UptimeRobot (kostenlos, https://uptimerobot.com)
 
-## Was Claude dann verdrahtet (sobald URLs vorliegen)
+Rein externe Konfiguration, kein Code/Cron nötig:
+- HTTP(s)-Monitor auf `https://api.respublica.media/api/health`, Intervall 5 min.
+- Optional „Keyword"-Monitor: erwartet `ok` im Body (`{"status":"ok"}`).
+- Alert-Kontakte: Gmail (+ optional Telegram).
+- `/api/health` ist vom Rate-Limit ausgenommen (M-002) → die 5-min-Checks werden nicht gedrosselt.
 
-- **DB-Backup** (`scripts/backup_gesetze_db.sh`, 03:30): am Ende
-  `curl -fsS "$PING_URL_BACKUP" || curl -fsS "$PING_URL_BACKUP/fail"`.
-- **gii_sync** (04:00, `/etc/cron.d/gesetze-sync`): analog mit `PING_URL_GII`.
-- **Tagespipeline** (06:00–07:10, root-crontab): `/start`-Ping am ersten Job,
-  Erfolgs-Ping am letzten Job; die Job-Kette nutzt die mit **M-009** eingeführten
-  sauberen Exit-Codes, sodass ein harter Fehler den Erfolgs-Ping verhindert.
+## Granularität
 
-Granularität pro Einzeljob bleibt bewusst zurückgestellt (Alert-Fatigue), bis M-009
+Pro-Einzeljob-Checks bleiben bewusst zurückgestellt (Alert-Fatigue), bis M-009
 verlässliche Exit-Codes liefert und ein Job real flaky wird.
