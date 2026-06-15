@@ -241,7 +241,6 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `summarize_gesetze_resilient.py` | Kurz-Zusammenfassungen `aenderungen` (Groq, Retry + Backoff, `--limit N`) — Produktions-Cron 07:00 |
 | `summarize_gesetze_claude.py` | DE+EN-Zusammenfassungen `aenderungen` (Claude CLI, Max Plan) — manuelles Qualitäts-Tool |
 | `summarize_urteile.py` | Kurz-Zusammenfassungen Bundesgerichte (Groq) |
-| `_archive/summarize_gesetze.py` | Alte Basis-Variante ohne Retry (ersetzt durch `summarize_gesetze_resilient.py`) |
 | `backup_gesetze_db.sh` | Tägliches DB-Backup `respublica_gesetze` (Cron 03:30, Retention 7/28 Tage) |
 | `api_snapshot.sh` | Response-Snapshot aller API-Routen für Refactoring-Verifikation (`diff -r` vor/nach) |
 
