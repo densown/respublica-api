@@ -6,6 +6,7 @@ const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
 const { parsePagination } = require("../lib/validate");
+const { requireIdent } = require("../lib/sql");
 
 // --- Wahlen API ---
 const WAHlen_TYPS = ["federal", "state", "municipal", "european", "mayoral"];
@@ -159,7 +160,7 @@ router.get("/wahlen/timeseries", asyncHandler(async (req, res) => {
     res.status(400).json({ error: "ags, typ und party erforderlich" });
     return;
   }
-  const sql = `SELECT election_year AS year, \`${party}\` AS value FROM wahlen WHERE typ = ? AND ${clause.sql} ORDER BY election_year ASC`;
+  const sql = `SELECT election_year AS year, \`${requireIdent(party, WAHlen_NUM_COLS)}\` AS value FROM wahlen WHERE typ = ? AND ${clause.sql} ORDER BY election_year ASC`;
   const [rows] = await getPool().query(sql, [typ, ...clause.params]);
   const out = rows.map((r) => ({
     year: r.year,
@@ -184,7 +185,7 @@ router.get("/wahlen/compare", asyncHandler(async (req, res) => {
   for (const ags of agsList) {
     const clause = wahlenAgsClause(ags);
     if (!clause) continue;
-    const sql = `SELECT election_year AS year, ags_name, \`${party}\` AS value FROM wahlen WHERE typ = ? AND ${clause.sql} ORDER BY election_year ASC`;
+    const sql = `SELECT election_year AS year, ags_name, \`${requireIdent(party, WAHlen_NUM_COLS)}\` AS value FROM wahlen WHERE typ = ? AND ${clause.sql} ORDER BY election_year ASC`;
     const [rows] = await pool.query(sql, [typ, ...clause.params]);
     const name = rows.length ? rows[rows.length - 1].ags_name : null;
     regions.push({
@@ -207,9 +208,9 @@ router.get("/wahlen/scatter", asyncHandler(async (req, res) => {
   }
   const sql =
     "SELECT ags, ags_name, state, `" +
-    x +
+    requireIdent(x, WAHlen_NUM_COLS) +
     "` AS x, `" +
-    y +
+    requireIdent(y, WAHlen_NUM_COLS) +
     "` AS y FROM wahlen WHERE typ = ? AND election_year = ?";
   const [rows] = await getPool().query(sql, [typ, year]);
   const out = rows
@@ -236,11 +237,11 @@ router.get("/wahlen/ranking", asyncHandler(async (req, res) => {
   }
   const sql =
     "SELECT ags, ags_name, state_name, `" +
-    party +
+    requireIdent(party, WAHlen_NUM_COLS) +
     "` AS value FROM wahlen WHERE typ = ? AND election_year = ? AND `" +
-    party +
+    requireIdent(party, WAHlen_NUM_COLS) +
     "` IS NOT NULL ORDER BY `" +
-    party +
+    requireIdent(party, WAHlen_NUM_COLS) +
     "` " +
     order +
     " LIMIT ?";
@@ -267,13 +268,13 @@ router.get("/wahlen/change", asyncHandler(async (req, res) => {
   const col = party;
   const sql = `
     SELECT a.ags, a.ags_name, a.state_name,
-           a.\`${col}\` AS v_from, b.\`${col}\` AS v_to
+           a.\`${requireIdent(col, WAHlen_NUM_COLS)}\` AS v_from, b.\`${requireIdent(col, WAHlen_NUM_COLS)}\` AS v_to
     FROM wahlen a
     INNER JOIN wahlen b ON a.typ = b.typ AND a.ags = b.ags
         AND IFNULL(a.election_type,'') = IFNULL(b.election_type,'')
         AND IFNULL(a.round,0) = IFNULL(b.round,0)
     WHERE a.typ = ? AND a.election_year = ? AND b.election_year = ?
-      AND a.\`${col}\` IS NOT NULL AND b.\`${col}\` IS NOT NULL
+      AND a.\`${requireIdent(col, WAHlen_NUM_COLS)}\` IS NOT NULL AND b.\`${requireIdent(col, WAHlen_NUM_COLS)}\` IS NOT NULL
   `;
   const [rows] = await getPool().query(sql, [typ, fromY, toY]);
   const out = rows.map((r) => {
@@ -300,9 +301,9 @@ router.get("/wahlen/national-average", asyncHandler(async (req, res) => {
     return;
   }
   const sql = `
-    SELECT election_year AS year, AVG(\`${party}\`) AS value
+    SELECT election_year AS year, AVG(\`${requireIdent(party, WAHlen_NUM_COLS)}\`) AS value
     FROM wahlen
-    WHERE typ = ? AND \`${party}\` IS NOT NULL
+    WHERE typ = ? AND \`${requireIdent(party, WAHlen_NUM_COLS)}\` IS NOT NULL
     GROUP BY election_year
     ORDER BY election_year ASC
   `;
