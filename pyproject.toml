@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "respublica-etl"
+version = "0.1.0"
+description = "Res.Publica ETL-Skripte (Scraper, Importer, Summarizer) + shared lib"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+# Editable-Install (`pip install -e .`) legt scripts/ auf den Importpfad, sodass
+# `from lib.db import get_db` und `import gii_parse` ohne sys.path-Hack laufen.
+# Bestehende sys.path.insert-Hacks bleiben vorerst (additiv) -> kein Risiko fuer
+# laufende Cron-Jobs; Entfernung erfolgt pro Skript in M-007 mit Verifikation.
+[tool.setuptools]
+package-dir = {"" = "scripts"}
+py-modules = ["gii_parse"]
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["lib*"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.pytest.ini_options]
+testpaths = ["scripts/tests"]

@@ -32,3 +32,9 @@ data/raw/
 scripts/venv-koeppen/
 data/climate/
 data/geo/
+
+# Python build-/packaging-Artefakte (editable install, M-016)
+*.egg-info/
+build/
+dist/
+.pytest_cache/
