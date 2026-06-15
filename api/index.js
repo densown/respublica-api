@@ -4,8 +4,11 @@ const path = require("path");
 const express = require("express");
 const cors = require("cors");
 
+const pinoHttp = require("pino-http");
+
 const { notFoundHandler, errorHandler } = require("./lib/errors");
 const { getPool } = require("./lib/db");
+const logger = require("./lib/logger");
 
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
@@ -22,6 +25,15 @@ process.on("uncaughtException", (err) => {
 const PORT = Number.parseInt(process.env.PORT || "3002", 10);
 
 const app = express();
+
+// Request-Logging mit Request-IDs (M-010). Health-Checks (alle 5 min) werden
+// nicht geloggt, um Rauschen zu vermeiden.
+app.use(
+  pinoHttp({
+    logger,
+    autoLogging: { ignore: (req) => req.url === "/api/health" },
+  })
+);
 
 // Erlaubte Browser-Origins. Das Dashboard (app.respublica.media) ruft die API
 // cross-origin unter api.respublica.media auf (VITE_API_BASE), daher ist CORS

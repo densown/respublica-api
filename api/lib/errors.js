@@ -9,9 +9,10 @@ function notFoundHandler(req, res) {
   res.status(404).json({ error: "Nicht gefunden" });
 }
 
-/** Zentrale Fehlerbehandlung: loggt mit Request-Kontext, antwortet generisch. */
+/** Zentrale Fehlerbehandlung: loggt strukturiert mit Request-Kontext. */
 function errorHandler(err, req, res, next) {
-  console.error(`[${req.method} ${req.originalUrl}]`, err);
+  const log = req.log || console;
+  log.error({ err, method: req.method, url: req.originalUrl }, "request failed");
   res.status(500).json({ error: "Datenbankfehler" });
 }
 
