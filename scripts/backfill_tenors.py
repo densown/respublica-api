@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 
 load_dotenv('/root/apps/gesetze/.env')
 
+from lib.db import get_db as lib_get_db
+
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'), user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'), database=os.getenv('DB_NAME')
-    )
+    return lib_get_db(autocommit=False)
+
 
 def fetch_tenor(doc_id):
     url = f'https://www.rechtsprechung-im-internet.de/jportal/portal/page/bsjrsprod?showdoccase=1&doc.id=jb-{doc_id}&doc.part=L'

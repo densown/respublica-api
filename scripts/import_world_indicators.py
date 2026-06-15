@@ -21,6 +21,7 @@ import urllib.request
 from pathlib import Path
 
 import mysql.connector
+from lib.db import get_db as lib_get_db
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -96,12 +97,7 @@ INSERT IGNORE INTO world_indicators (
 
 
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD") or "",
-        database=os.getenv("DB_NAME"),
-    )
+    return lib_get_db(autocommit=False)
 
 
 def http_get_json(url: str):

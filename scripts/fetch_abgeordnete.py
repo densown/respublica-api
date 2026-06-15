@@ -7,6 +7,7 @@ from datetime import datetime
 from urllib.parse import urlencode
 
 import mysql.connector
+from lib.db import get_db as lib_get_db
 import requests
 from dotenv import load_dotenv
 
@@ -35,12 +36,7 @@ def log_line(msg):
 
 
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME'),
-    )
+    return lib_get_db(autocommit=False)
 
 
 def clean_fraction_label(label):

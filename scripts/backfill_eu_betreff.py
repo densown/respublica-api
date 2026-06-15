@@ -2,6 +2,7 @@
 import os, sys, time, logging
 from pathlib import Path
 import mysql.connector, requests
+from lib.db import get_db as lib_get_db
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -15,8 +16,8 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Accept-La
 TRIGGER = ['Rechtssache', 'Beschluss', 'Urteil', 'Gutachten', 'Stellungnahme']
 
 def get_db():
-    return mysql.connector.connect(host=os.getenv('DB_HOST'), user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'), database=os.getenv('DB_NAME'))
+    return lib_get_db(autocommit=False)
+
 
 def fetch_betreff(celex):
     try:

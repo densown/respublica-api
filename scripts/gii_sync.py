@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 import mysql.connector
+from lib.db import get_db as lib_get_db
 import requests
 from dotenv import load_dotenv
 
@@ -44,20 +45,7 @@ def setup_logging() -> None:
 
 def get_db():
     load_dotenv(ROOT / ".env")
-    kw: dict = dict(
-        user=os.environ.get("DB_USER", "root"),
-        password=os.environ.get("DB_PASSWORD", ""),
-        database=os.environ.get("DB_NAME", "respublica_gesetze"),
-        charset="utf8mb4",
-        collation="utf8mb4_unicode_ci",
-        autocommit=False,
-    )
-    sock = os.environ.get("DB_UNIX_SOCKET", "/var/run/mysqld/mysqld.sock")
-    if Path(sock).exists():
-        kw["unix_socket"] = sock
-    else:
-        kw["host"] = os.environ.get("DB_HOST", "localhost")
-    return mysql.connector.connect(**kw)
+    return lib_get_db(autocommit=False)
 
 
 def log_run_start(cur) -> int:

@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.parse import quote, urlencode
 
 import mysql.connector
+from lib.db import get_db as lib_get_db
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -50,12 +51,7 @@ REQUEST_PAUSE = float(os.getenv('EURLEX_ENRICH_PAUSE_SEC', '1.0'))
 
 
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv('DB_HOST'),
-        user=os.getenv('DB_USER'),
-        password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_NAME'),
-    )
+    return lib_get_db(autocommit=False)
 
 
 def sleep_pause():

@@ -14,6 +14,7 @@ from datetime import date
 from pathlib import Path
 
 import mysql.connector
+from lib.db import get_db as lib_get_db
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -61,12 +62,7 @@ INSERT IGNORE INTO wahlen (
 
 
 def get_db():
-    return mysql.connector.connect(
-        host=os.getenv("DB_HOST"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD") or "",
-        database=os.getenv("DB_NAME"),
-    )
+    return lib_get_db(autocommit=False)
 
 
 def to_float(x):
