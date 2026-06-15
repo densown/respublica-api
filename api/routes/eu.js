@@ -5,6 +5,7 @@ const router = express.Router();
 const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
+const { parsePagination } = require("../lib/validate");
 
 /** EU-Recht: Statistiken (vor :id registrieren) */
 router.get("/eu-recht/stats", asyncHandler(async (_req, res) => {
@@ -36,11 +37,7 @@ router.get("/eu-recht", asyncHandler(async (req, res) => {
   const typ = req.query.typ || null;
   const rechtsgebiet = req.query.rechtsgebiet || null;
   const search = req.query.search || null;
-  let limit = Number.parseInt(String(req.query.limit || "50"), 10);
-  let offset = Number.parseInt(String(req.query.offset || "0"), 10);
-  if (!Number.isFinite(limit) || limit < 1) limit = 50;
-  if (limit > 200) limit = 200;
-  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  const { limit, offset } = parsePagination(req.query, { defLimit: 50, maxLimit: 200 });
 
   const allowedTyp = new Set(["REG", "DIR", "DEC", "REC", "OTHER"]);
   let where = "WHERE 1=1";
@@ -198,11 +195,7 @@ router.get("/eu-urteile", asyncHandler(async (req, res) => {
   const gericht = req.query.gericht || null;
   const rechtsgebiet = req.query.rechtsgebiet || null;
   const search = req.query.search || null;
-  let limit = Number.parseInt(String(req.query.limit || "50"), 10);
-  let offset = Number.parseInt(String(req.query.offset || "0"), 10);
-  if (!Number.isFinite(limit) || limit < 1) limit = 50;
-  if (limit > 200) limit = 200;
-  if (!Number.isFinite(offset) || offset < 0) offset = 0;
+  const { limit, offset } = parsePagination(req.query, { defLimit: 50, maxLimit: 200 });
 
   const allowedGericht = new Set(["EuGH", "EuG"]);
   let where = "WHERE 1=1";

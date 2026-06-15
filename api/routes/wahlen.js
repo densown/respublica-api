@@ -5,6 +5,7 @@ const router = express.Router();
 const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
+const { parsePagination } = require("../lib/validate");
 
 // --- Wahlen API ---
 const WAHlen_TYPS = ["federal", "state", "municipal", "european", "mayoral"];
@@ -227,7 +228,7 @@ router.get("/wahlen/ranking", asyncHandler(async (req, res) => {
   const typ = wahlenParseTyp(req.query.typ);
   const year = Number.parseInt(String(req.query.year || ""), 10);
   const party = String(req.query.party || "").trim().toLowerCase();
-  const limit = Math.min(500, Math.max(1, Number.parseInt(String(req.query.limit || "20"), 10) || 20));
+  const { limit } = parsePagination(req.query, { defLimit: 20, maxLimit: 500 });
   const order = String(req.query.order || "desc").toLowerCase() === "asc" ? "ASC" : "DESC";
   if (!typ || !Number.isFinite(year) || !WAHlen_NUM_COLS.has(party)) {
     res.status(400).json({ error: "typ, year und party erforderlich" });
