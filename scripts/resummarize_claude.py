@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lib.db import get_db as lib_get_db
 from lib.env import load_env
+from lib.claude import call_claude
 
 load_env()
 
@@ -58,24 +59,6 @@ Regeln:
 
 JSON:"""
 
-def call_claude(prompt):
-    try:
-        env = os.environ.copy()
-        env.pop('ANTHROPIC_API_KEY', None)
-        result = subprocess.run(
-            ['claude', '--print', '-p', prompt],
-            capture_output=True, text=True, timeout=120, env=env,
-        )
-        if result.returncode != 0:
-            log(f'  claude stderr: {result.stderr.strip()[:300]}')
-            return None
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        log('  claude timeout (120s)')
-        return None
-    except FileNotFoundError:
-        log('  claude CLI nicht gefunden')
-        return None
 
 def parse_response(raw):
     if not raw:
@@ -130,7 +113,7 @@ def main():
             print(prompt[:500])
             continue
 
-        raw = call_claude(prompt)
+        raw = call_claude(prompt, timeout=120, log=log)
         parsed = parse_response(raw)
         if parsed is None:
             fail += 1

@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.db import get_db as lib_get_db
 from lib.env import load_env
 from lib.log import acquire_lock as lib_acquire_lock, release_lock as lib_release_lock
+from lib.claude import call_claude
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "logs"
@@ -99,26 +100,6 @@ Diff (Git-Format):
 --- ENDE ---
 
 JSON:"""
-
-
-def call_claude(prompt: str) -> str | None:
-    try:
-        env = os.environ.copy()
-        env.pop("ANTHROPIC_API_KEY", None)  # Max Plan, nicht API
-        result = subprocess.run(
-            ["claude", "--print", "-p", prompt],
-            capture_output=True, text=True, timeout=TIMEOUT_SEC, env=env,
-        )
-        if result.returncode != 0:
-            log(f"  claude stderr: {result.stderr.strip()[:300]}")
-            return None
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        log(f"  claude timeout ({TIMEOUT_SEC}s)")
-        return None
-    except FileNotFoundError:
-        log("  claude CLI nicht gefunden")
-        return None
 
 
 def parse_response(raw: str | None) -> tuple[str, str] | None:
@@ -210,7 +191,7 @@ def main() -> int:
                     break
                 continue
             
-            raw = call_claude(prompt)
+            raw = call_claude(prompt, timeout=TIMEOUT_SEC, log=log)
             parsed = parse_response(raw)
             
             if parsed is None:

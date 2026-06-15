@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lib.db import get_db as lib_get_db
 from lib.env import load_env
+from lib.claude import call_claude
 
 load_env()
 LOG_FILE = '/root/apps/gesetze/logs/resummarize_rechtsakte.log'
@@ -46,23 +47,6 @@ EuroVoc-Tags: {(eurovoc_tags or '').strip() or '—'}
 
 JSON:"""
 
-def call_claude(prompt):
-    try:
-        env = os.environ.copy()
-        env.pop('ANTHROPIC_API_KEY', None)
-        result = subprocess.run(
-            ['claude', '--print', '-p', prompt],
-            capture_output=True, text=True, timeout=120, env=env)
-        if result.returncode != 0:
-            log(f'  claude stderr: {result.stderr.strip()[:300]}')
-            return None
-        return result.stdout.strip()
-    except subprocess.TimeoutExpired:
-        log('  claude timeout (120s)')
-        return None
-    except FileNotFoundError:
-        log('  claude CLI nicht gefunden')
-        return None
 
 def parse_response(raw):
     if not raw: return None
@@ -118,7 +102,7 @@ def main():
         if args.dry_run:
             print(build_prompt(row)[:500])
             continue
-        raw = call_claude(build_prompt(row))
+        raw = call_claude(build_prompt(row), timeout=120, log=log)
         parsed = parse_response(raw)
         if parsed is None:
             fail += 1
