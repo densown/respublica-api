@@ -1,8 +1,8 @@
 # Alerting-Setup (M-005)
 
-Status:
+Status: **✅ vollständig aktiv.**
 - **Healthchecks.io (Cron): ✅ verdrahtet & getestet** (3 Checks, Pings erreichen HC mit 200).
-- **UptimeRobot (API-Uptime): ⏳ offen** — von Luca anzulegen (rein externe Config, kein Code).
+- **UptimeRobot (API-Uptime): ✅ aktiv** — pollt `/api/health` alle ~5 min (extern, 200).
 
 > **Sicherheit:** Die Ping-URLs (UUIDs) sind **bewusst NICHT in Git**. Wer eine Ping-URL
 > kennt, kann gefälschte success/fail-Pings senden und so das Monitoring aushebeln.
@@ -34,13 +34,11 @@ Exit-Code von `summarize_urteile.py`. Bis M-009 verlässliche Exit-Codes liefert
 das v.a. als Liveness-Signal (Pipeline hat ~07:10 erreicht, Server/Cron leben). Echte
 Mid-Pipeline-Fehlererkennung folgt mit M-009.
 
-## ⏳ Noch zu tun: UptimeRobot (kostenlos, https://uptimerobot.com)
+## ✅ UptimeRobot (aktiv)
 
-Rein externe Konfiguration, kein Code/Cron nötig:
-- HTTP(s)-Monitor auf `https://api.respublica.media/api/health`, Intervall 5 min.
-- Optional „Keyword"-Monitor: erwartet `ok` im Body (`{"status":"ok"}`).
-- Alert-Kontakte: Gmail (+ optional Telegram).
-- `/api/health` ist vom Rate-Limit ausgenommen (M-002) → die 5-min-Checks werden nicht gedrosselt.
+HTTP(s)-Monitor auf `https://api.respublica.media/api/health`, Intervall 5 min
+(verifiziert: externe Poller mit UA `uptimerobot.com`, Antwort 200).
+`/api/health` ist vom Rate-Limit ausgenommen (M-002) → die 5-min-Checks werden nicht gedrosselt.
 
 ## Granularität
 
