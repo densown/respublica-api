@@ -74,6 +74,7 @@ app.use("/api", require("./routes/urteile"));
 app.use("/api", require("./routes/eu"));
 app.use("/api", require("./routes/lobby"));
 app.use("/api", require("./routes/wahlen"));
+app.use("/api", require("./routes/umfragen"));
 app.use("/api", require("./routes/world"));
 
 app.use(notFoundHandler);
