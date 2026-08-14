@@ -77,6 +77,130 @@ router.get("/abgeordnete", asyncHandler(async (_req, res) => {
   res.json(rows);
 }));
 
+/**
+ * Abstimmungsprofil eines Abgeordneten nach Themenfeld.
+ *
+ * Liefert je Thema die Stimmenbilanz plus die Zahl der Abweichungen von der
+ * Mehrheit der eigenen Fraktion. Das ist die eigentliche Aussage: nicht wie
+ * jemand abstimmt, sondern wo er oder sie von der Fraktion abweicht.
+ *
+ * Zur Definition von "Abweichung": verglichen wird nur, wenn die oder der
+ * Abgeordnete tatsaechlich abgestimmt hat (ja, nein, enthalten). Nichtteilnahme
+ * ist keine inhaltliche Abweichung und bleibt draussen — sonst zaehlten
+ * Krankheit und Dienstreise als Aufmuepfigkeit.
+ */
+router.get("/abgeordnete/:aw_id/themen", asyncHandler(async (req, res) => {
+  const awId = Number.parseInt(req.params.aw_id, 10);
+  if (!Number.isFinite(awId)) {
+    res.status(400).json({ error: "Ungültige aw_id" });
+    return;
+  }
+
+  const [person] = await getPool().query(
+    `SELECT aw_id, name, fraktion, wahlkreis, foto_url, profil_url
+       FROM abgeordnete WHERE aw_id = ?`,
+    [awId],
+  );
+  if (!person.length) {
+    res.status(404).json({ error: "Abgeordnete:r nicht gefunden" });
+    return;
+  }
+
+  // Mehrheitsvotum je Fraktion und Abstimmung. Bei Gleichstand entscheidet
+  // die Stimmenzahl, danach alphabetisch — deterministisch, damit dieselbe
+  // Anfrage nicht mal so und mal so antwortet.
+  const [rows] = await getPool().query(
+    `WITH fraktion_votes AS (
+       SELECT poll_id, fraction_label, vote, COUNT(*) AS n
+         FROM votes
+        WHERE vote IS NOT NULL AND vote <> 'no_show'
+        GROUP BY poll_id, fraction_label, vote
+     ),
+     fraktion_mehrheit AS (
+       SELECT poll_id, fraction_label, vote,
+              ROW_NUMBER() OVER (
+                PARTITION BY poll_id, fraction_label ORDER BY n DESC, vote ASC
+              ) AS rang
+         FROM fraktion_votes
+     )
+     SELECT t.slug, t.name_de, t.name_en, t.sortierung,
+            v.poll_id, v.vote,
+            fm.vote AS fraktion_vote
+       FROM votes v
+       INNER JOIN poll_themenfelder pt ON pt.poll_id = v.poll_id
+       INNER JOIN themenfelder t ON t.id = pt.themenfeld_id
+       LEFT JOIN fraktion_mehrheit fm
+              ON fm.poll_id = v.poll_id
+             AND fm.fraction_label = v.fraction_label
+             AND fm.rang = 1
+      WHERE v.mandate_id = ?
+      ORDER BY t.sortierung ASC`,
+    [awId],
+  );
+
+  const themen = new Map();
+  const abwPolls = new Set();
+
+  for (const r of rows) {
+    let th = themen.get(r.slug);
+    if (!th) {
+      th = {
+        slug: r.slug,
+        name_de: r.name_de,
+        name_en: r.name_en,
+        abstimmungen: 0,
+        ja: 0, nein: 0, enthalten: 0, abwesend: 0,
+        abweichungen: 0,
+      };
+      themen.set(r.slug, th);
+    }
+    th.abstimmungen += 1;
+    if (r.vote === "yes") th.ja += 1;
+    else if (r.vote === "no") th.nein += 1;
+    else if (r.vote === "abstain") th.enthalten += 1;
+    else if (r.vote === "no_show") th.abwesend += 1;
+
+    const abweichung =
+      r.vote !== "no_show" && r.fraktion_vote != null && r.vote !== r.fraktion_vote;
+    if (abweichung) {
+      th.abweichungen += 1;
+      abwPolls.add(r.poll_id);
+    }
+  }
+
+  // Eine Abstimmung kann an mehreren Themen haengen — die Gesamtbilanz zaehlt
+  // deshalb ueber Abstimmungen, nicht ueber die Themenzeilen.
+  const [bilanz] = await getPool().query(
+    `SELECT vote, COUNT(*) AS n FROM votes WHERE mandate_id = ? GROUP BY vote`,
+    [awId],
+  );
+  const gesamt = {
+    abstimmungen: 0, ja: 0, nein: 0, enthalten: 0, abwesend: 0,
+    abweichungen: abwPolls.size,
+  };
+  for (const b of bilanz) {
+    const n = Number(b.n);
+    gesamt.abstimmungen += n;
+    if (b.vote === "yes") gesamt.ja = n;
+    else if (b.vote === "no") gesamt.nein = n;
+    else if (b.vote === "abstain") gesamt.enthalten = n;
+    else if (b.vote === "no_show") gesamt.abwesend = n;
+  }
+
+  res.json({
+    abgeordnete: {
+      aw_id: person[0].aw_id,
+      name: person[0].name,
+      fraktion: person[0].fraktion,
+      wahlkreis: person[0].wahlkreis,
+      foto_url: person[0].foto_url,
+      profil_url: person[0].profil_url,
+    },
+    gesamt,
+    themen: [...themen.values()].filter((t) => t.abstimmungen > 0),
+  });
+}));
+
 /** Abstimmungshistorie eines Abgeordneten (über votes + abstimmungen) */
 router.get("/abgeordnete/:aw_id/votes", asyncHandler(async (req, res) => {
   const awId = Number.parseInt(req.params.aw_id, 10);
