@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Abgeordnete (21. Bundestag) von Abgeordnetenwatch API v2 in Tabelle abgeordnete."""
+"""Mandate und Kandidaturen von Abgeordnetenwatch API v2 in Tabelle abgeordnete.
+
+Standard ist der 21. Bundestag (parliament_period 161). Ueber
+--parliament-period laesst sich jede andere Wahlperiode holen, etwa 168 fuer
+die Landtagswahl Sachsen-Anhalt 2026. Mandate und Kandidaturen landen in
+derselben Tabelle und werden ueber die Spalte `typ` unterschieden — so
+fuehrt es auch die Quelle.
+"""
+import argparse
 import os
 import re
 import time
@@ -120,13 +128,30 @@ def extract_row(item):
     except (TypeError, ValueError):
         politiker_id = None
 
+    # Kandidaturen haben keine Fraktion, sondern eine Partei.
+    partei = ((item.get('party') or {}).get('label') or None)
+    if partei:
+        partei = str(partei).strip()[:96] or None
+
+    # abgeordnetenwatch unterscheidet Mandat und Kandidatur ueber `type`.
+    typ = 'kandidatur' if str(item.get('type') or '').lower() == 'candidacy' else 'mandat'
+
+    periode = ((item.get('parliament_period') or {}).get('id'))
+    try:
+        periode = int(periode) if periode is not None else None
+    except (TypeError, ValueError):
+        periode = None
+
     return (
         aw_id,
         politiker_id,
+        periode,
+        typ,
         vorname,
         nachname,
         name,
         fraktion,
+        partei,
         wahlkreis,
         wahlkreis_nr,
         listenplatz,
@@ -136,13 +161,16 @@ def extract_row(item):
 
 UPSERT_SQL = '''
 INSERT INTO abgeordnete (
-  aw_id, politiker_id, vorname, nachname, name, fraktion,
-  wahlkreis, wahlkreis_nr, listenplatz, profil_url, foto_url
+  aw_id, politiker_id, parliament_period, typ, vorname, nachname, name, fraktion,
+  partei, wahlkreis, wahlkreis_nr, listenplatz, profil_url, foto_url
 ) VALUES (
-  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL
+  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL
 )
 ON DUPLICATE KEY UPDATE
   politiker_id = VALUES(politiker_id),
+  parliament_period = VALUES(parliament_period),
+  typ = VALUES(typ),
+  partei = VALUES(partei),
   vorname = VALUES(vorname),
   nachname = VALUES(nachname),
   name = VALUES(name),
@@ -155,9 +183,9 @@ ON DUPLICATE KEY UPDATE
 '''
 
 
-def fetch_page(page):
+def fetch_page(page, periode=PARLIAMENT_PERIOD):
     q = urlencode({
-        'parliament_period': PARLIAMENT_PERIOD,
+        'parliament_period': periode,
         'page': page,
         'pager_limit': PAGER_LIMIT,
     })
@@ -168,7 +196,12 @@ def fetch_page(page):
 
 
 def main():
-    log_line('Start')
+    ap = argparse.ArgumentParser(description='Mandate/Kandidaturen importieren')
+    ap.add_argument('--parliament-period', type=int, default=PARLIAMENT_PERIOD,
+                    help=f'abgeordnetenwatch-Wahlperiode (Default {PARLIAMENT_PERIOD} = 21. Bundestag)')
+    args = ap.parse_args()
+    periode = args.parliament_period
+    log_line(f'Start (parliament_period={periode})')
     db = get_db()
     cur = db.cursor()
     page = 0
@@ -177,7 +210,7 @@ def main():
 
     try:
         while True:
-            payload = fetch_page(page)
+            payload = fetch_page(page, periode)
             items = payload.get('data') or []
             if not items:
                 break
@@ -187,7 +220,7 @@ def main():
                 total = int(meta.get('total') or 0)
                 total_pages = max(1, (total + PAGER_LIMIT - 1) // PAGER_LIMIT)
 
-            log_line(f'Seite {page + 1}/{total_pages}: {len(items)} MdBs geholt')
+            log_line(f'Seite {page + 1}/{total_pages}: {len(items)} Datensaetze geholt')
 
             batch = []
             for item in items:

@@ -2,6 +2,10 @@
 
 const express = require("express");
 const router = express.Router();
+
+// abgeordnetenwatch-Wahlperiode des laufenden Bundestags. Seit Migration 014
+// teilt sich `abgeordnete` die Tabelle mit Landtags-Kandidaturen.
+const BUNDESTAG_PERIOD = 161;
 const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
@@ -44,7 +48,10 @@ router.get("/bundestag/sitzverteilung", (_req, res) => {
 /** Bundestag: alle Abgeordneten (DB), sortiert nach Fraktion, Nachname */
 router.get("/bundestag/abgeordnete", asyncHandler(async (_req, res) => {
   const [rows] = await getPool().query(
-    `SELECT * FROM abgeordnete ORDER BY fraktion, nachname`
+    `SELECT * FROM abgeordnete
+      WHERE parliament_period = ? AND typ = 'mandat'
+      ORDER BY fraktion, nachname`,
+    [BUNDESTAG_PERIOD]
   );
   res.json(rows);
 }));
@@ -67,12 +74,21 @@ router.get("/bundestag/abgeordnete/:id", asyncHandler(async (req, res) => {
   res.json(rows[0]);
 }));
 
-/** Alle Abgeordneten für Frontend-Hemicycle-Mapping */
+/**
+ * Alle Abgeordneten für Frontend-Hemicycle-Mapping.
+ *
+ * Seit Migration 014 liegen in `abgeordnete` auch Landtags-Kandidaturen.
+ * Ohne den Filter wuerden die im Sitzhalbrund des Bundestags auftauchen —
+ * der Endpoint muss deshalb explizit auf Mandate der laufenden
+ * Bundestagsperiode eingrenzen.
+ */
 router.get("/abgeordnete", asyncHandler(async (_req, res) => {
   const [rows] = await getPool().query(
     `SELECT id, aw_id, name, fraktion, wahlkreis, foto_url, profil_url
      FROM abgeordnete
-     ORDER BY fraktion, nachname`
+     WHERE parliament_period = ? AND typ = 'mandat'
+     ORDER BY fraktion, nachname`,
+    [BUNDESTAG_PERIOD]
   );
   res.json(rows);
 }));

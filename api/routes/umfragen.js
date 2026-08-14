@@ -228,4 +228,90 @@ router.get(
   }),
 );
 
+/**
+ * Kandidaturen zu einer Wahl, nach Partei gruppiert.
+ *
+ * Verknuepft ueber wahltermine.aw_parliament_period_id — dawum (Umfragen) und
+ * abgeordnetenwatch (Personen) nummerieren ihre Perioden unabhaengig
+ * voneinander, deshalb traegt `wahltermine` beide Schluessel.
+ */
+router.get(
+  "/wahltermine/:slug/kandidaturen",
+  asyncHandler(async (req, res) => {
+    const slug = String(req.params.slug || "").trim().toLowerCase();
+    if (!SLUG_RE.test(slug)) {
+      res.status(400).json({ error: "slug ungültig" });
+      return;
+    }
+
+    const [wahl] = await getPool().query(
+      `SELECT slug, name_de, name_en, datum, land, aw_parliament_period_id
+         FROM wahltermine WHERE slug = ?`,
+      [slug],
+    );
+    if (!wahl.length) {
+      res.status(404).json({ error: "Wahltermin nicht gefunden" });
+      return;
+    }
+    const periode = wahl[0].aw_parliament_period_id;
+    if (periode == null) {
+      // Kein Fehler: fuer die meisten Wahlen fuehrt abgeordnetenwatch (noch)
+      // keine Kandidaturen. Leere Liste statt 404, damit das Frontend die
+      // Wahl trotzdem anzeigen kann.
+      res.json({ wahl: wahl[0], gesamt: 0, parteien: [] });
+      return;
+    }
+
+    const params = [periode];
+    let parteiFilter = "";
+    const partei = String(req.query.partei || "").trim();
+    if (partei) {
+      parteiFilter = " AND partei = ?";
+      params.push(partei);
+    }
+
+    const [rows] = await getPool().query(
+      `SELECT aw_id, name, partei, wahlkreis, wahlkreis_nr, listenplatz, profil_url, foto_url
+         FROM abgeordnete
+        WHERE parliament_period = ? AND typ = 'kandidatur'${parteiFilter}
+        ORDER BY partei ASC, wahlkreis_nr ASC, listenplatz ASC, nachname ASC`,
+      params,
+    );
+
+    const nachPartei = new Map();
+    for (const r of rows) {
+      const key = r.partei || "—";
+      let gruppe = nachPartei.get(key);
+      if (!gruppe) {
+        gruppe = { partei: key, anzahl: 0, kandidaturen: [] };
+        nachPartei.set(key, gruppe);
+      }
+      gruppe.anzahl += 1;
+      gruppe.kandidaturen.push({
+        aw_id: r.aw_id,
+        name: r.name,
+        wahlkreis: r.wahlkreis,
+        wahlkreis_nr: r.wahlkreis_nr == null ? null : Number(r.wahlkreis_nr),
+        listenplatz: r.listenplatz == null ? null : Number(r.listenplatz),
+        profil_url: r.profil_url,
+        foto_url: r.foto_url,
+      });
+    }
+
+    res.json({
+      wahl: {
+        slug: wahl[0].slug,
+        name_de: wahl[0].name_de,
+        name_en: wahl[0].name_en,
+        land: wahl[0].land,
+        datum: formatDate(wahl[0].datum),
+      },
+      gesamt: rows.length,
+      // Groesste Parteien zuerst — das entspricht der Relevanz und deckt sich
+      // mit der Reihenfolge auf der Umfrageseite.
+      parteien: [...nachPartei.values()].sort((a, b) => b.anzahl - a.anzahl),
+    });
+  }),
+);
+
 module.exports = router;
