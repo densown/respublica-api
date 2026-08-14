@@ -76,6 +76,7 @@ app.use("/api", require("./routes/lobby"));
 app.use("/api", require("./routes/wahlen"));
 app.use("/api", require("./routes/umfragen"));
 app.use("/api", require("./routes/themenfelder"));
+app.use("/api", require("./routes/governance"));
 app.use("/api", require("./routes/world"));
 
 app.use(notFoundHandler);
