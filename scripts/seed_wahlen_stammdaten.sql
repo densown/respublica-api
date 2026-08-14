@@ -102,6 +102,52 @@ INSERT INTO wahltermine (slug, ebene, land, name_de, name_en, datum, dawum_parli
    'Wahl zum Abgeordnetenhaus von Berlin 2026', 'Berlin state election 2026',
    '2026-09-20', 3, 'kommend'),
 
+  -- Schleswig-Holstein (dawum 15)
+  ('ltw-schleswig-holstein-2017', 'land', 'Schleswig-Holstein',
+   'Landtagswahl Schleswig-Holstein 2017', 'Schleswig-Holstein state election 2017',
+   '2017-05-07', 15, 'abgeschlossen'),
+  ('ltw-schleswig-holstein-2022', 'land', 'Schleswig-Holstein',
+   'Landtagswahl Schleswig-Holstein 2022', 'Schleswig-Holstein state election 2022',
+   '2022-05-08', 15, 'abgeschlossen'),
+  ('ltw-schleswig-holstein-2027', 'land', 'Schleswig-Holstein',
+   'Landtagswahl Schleswig-Holstein 2027', 'Schleswig-Holstein state election 2027',
+   '2027-04-18', 15, 'kommend'),
+
+  -- Saarland (dawum 12)
+  ('ltw-saarland-2017', 'land', 'Saarland',
+   'Landtagswahl Saarland 2017', 'Saarland state election 2017',
+   '2017-03-26', 12, 'abgeschlossen'),
+  ('ltw-saarland-2022', 'land', 'Saarland',
+   'Landtagswahl Saarland 2022', 'Saarland state election 2022',
+   '2022-03-27', 12, 'abgeschlossen'),
+  ('ltw-saarland-2027', 'land', 'Saarland',
+   'Landtagswahl Saarland 2027', 'Saarland state election 2027',
+   '2027-04-18', 12, 'kommend'),
+
+  -- Nordrhein-Westfalen (dawum 10) — 18 Mio. Einwohner, reichweitenstaerkste
+  -- Landtagswahl der naechsten Jahre.
+  ('ltw-nordrhein-westfalen-2017', 'land', 'Nordrhein-Westfalen',
+   'Landtagswahl Nordrhein-Westfalen 2017', 'North Rhine-Westphalia state election 2017',
+   '2017-05-14', 10, 'abgeschlossen'),
+  ('ltw-nordrhein-westfalen-2022', 'land', 'Nordrhein-Westfalen',
+   'Landtagswahl Nordrhein-Westfalen 2022', 'North Rhine-Westphalia state election 2022',
+   '2022-05-15', 10, 'abgeschlossen'),
+  ('ltw-nordrhein-westfalen-2027', 'land', 'Nordrhein-Westfalen',
+   'Landtagswahl Nordrhein-Westfalen 2027', 'North Rhine-Westphalia state election 2027',
+   '2027-04-25', 10, 'kommend'),
+
+  -- Bremen (dawum 5) — Buergerschaft, 4-Jahres-Turnus. dawum-Bestand beginnt
+  -- 2018, ein Termin vor 2019 wird daher nicht gebraucht.
+  ('bsw-bremen-2019', 'land', 'Bremen',
+   'Bürgerschaftswahl Bremen 2019', 'Bremen state election 2019',
+   '2019-05-26', 5, 'abgeschlossen'),
+  ('bsw-bremen-2023', 'land', 'Bremen',
+   'Bürgerschaftswahl Bremen 2023', 'Bremen state election 2023',
+   '2023-05-14', 5, 'abgeschlossen'),
+  ('bsw-bremen-2027', 'land', 'Bremen',
+   'Bürgerschaftswahl Bremen 2027', 'Bremen state election 2027',
+   '2027-05-30', 5, 'kommend'),
+
   -- Bundestag (dawum 0) — dawum-Bestand beginnt am 18.01.2017, deshalb ist
   -- die BTW 2017 als aeltester Bezugspunkt noetig. Der Termin der naechsten
   -- regulaeren Wahl steht noch nicht fest -> datum NULL.
