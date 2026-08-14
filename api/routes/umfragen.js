@@ -304,6 +304,30 @@ router.get(
       });
     }
 
+    /*
+     * Spitzenkandidaturen.
+     *
+     * abgeordnetenwatch fuehrt keine Kennzeichnung dafuer — abgeleitet wird
+     * ueber Listenplatz 1 der Landesliste. Das ist der uebliche und
+     * nachpruefbare Stellvertreter: wer eine Landesliste anfuehrt, ist das
+     * Gesicht der Partei im Wahlkampf. Parteien ohne Landesliste tauchen
+     * folglich nicht auf, was korrekt ist — sie treten nur mit
+     * Direktbewerbungen an.
+     *
+     * Bewusst nicht redaktionell gesetzt: eine gepflegte Liste waere eine
+     * weitere Stelle, die vor jeder Wahl veralten kann.
+     */
+    const spitzen = rows
+      .filter((r) => Number(r.listenplatz) === 1)
+      .map((r) => ({
+        aw_id: r.aw_id,
+        name: r.name,
+        partei: r.partei,
+        wahlkreis: kurzerWahlkreis(r.wahlkreis),
+        foto_url: r.foto_url,
+        profil_url: r.profil_url,
+      }));
+
     res.json({
       wahl: {
         slug: wahl[0].slug,
@@ -313,6 +337,7 @@ router.get(
         datum: formatDate(wahl[0].datum),
       },
       gesamt: rows.length,
+      spitzenkandidaturen: spitzen,
       // Groesste Parteien zuerst — das entspricht der Relevanz und deckt sich
       // mit der Reihenfolge auf der Umfrageseite.
       parteien: [...nachPartei.values()].sort((a, b) => b.anzahl - a.anzahl),

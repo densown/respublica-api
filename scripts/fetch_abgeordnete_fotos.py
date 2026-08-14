@@ -36,6 +36,18 @@ WHERE foto_url IS NULL
 ORDER BY id ASC
 """
 
+# Mit --parliament-period laesst sich der Lauf auf eine Wahlperiode
+# eingrenzen. Ohne Filter liefe er ueber alle 545 Eintraege ohne Foto,
+# obwohl meist nur die neu importierten Kandidaturen fehlen.
+SELECT_SQL_PERIODE = """
+SELECT id, aw_id, politiker_id, name
+FROM abgeordnete
+WHERE foto_url IS NULL
+  AND (politiker_id IS NOT NULL OR aw_id IS NOT NULL)
+  AND parliament_period = %s
+ORDER BY listenplatz IS NULL, listenplatz ASC, id ASC
+"""
+
 UPDATE_SQL = """
 UPDATE abgeordnete
 SET politiker_id = %s,
@@ -87,6 +99,21 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Verarbeitet nur die ersten N Datensätze mit foto_url IS NULL.",
+    )
+    parser.add_argument(
+        "--parliament-period",
+        type=int,
+        default=None,
+        help="Nur diese abgeordnetenwatch-Wahlperiode (z. B. 168 = Sachsen-Anhalt 2026).",
+    )
+    parser.add_argument(
+        "--sleep",
+        type=float,
+        default=AW_SLEEP_SEC,
+        help=(
+            "Wartezeit zwischen Abgeordnetenwatch-Abrufen in Sekunden. "
+            f"Default {AW_SLEEP_SEC}; bei HTTP 429 hochsetzen."
+        ),
     )
     return parser.parse_args()
 
@@ -173,12 +200,17 @@ def fetch_photo_filename_from_wikidata(qid: str) -> str | None:
 def load_targets(
     conn: mysql.connector.MySQLConnection,
     limit: int | None,
+    periode: int | None = None,
 ) -> list[tuple[int, int, int | None, str | None]]:
-    sql = SELECT_SQL
-    params: tuple[Any, ...] = ()
+    if periode is not None:
+        sql = SELECT_SQL_PERIODE
+        params: tuple[Any, ...] = (periode,)
+    else:
+        sql = SELECT_SQL
+        params = ()
     if limit is not None:
         sql += " LIMIT %s"
-        params = (limit,)
+        params = params + (limit,)
 
     cur = conn.cursor()
     try:
@@ -200,9 +232,11 @@ def load_targets(
 
 
 def main() -> int:
+    global AW_SLEEP_SEC
     args = parse_args()
     setup_logging()
     load_env()
+    AW_SLEEP_SEC = args.sleep
 
     if args.limit is not None and args.limit <= 0:
         logging.error("--limit muss > 0 sein.")
@@ -211,7 +245,7 @@ def main() -> int:
     conn: mysql.connector.MySQLConnection | None = None
     try:
         conn = connect_db()
-        targets = load_targets(conn, args.limit)
+        targets = load_targets(conn, args.limit, args.parliament_period)
         total = len(targets)
         logging.info("Starte: %d Datensätze mit fehlender foto_url gefunden.", total)
 
