@@ -278,6 +278,12 @@ router.get(
       params,
     );
 
+    // abgeordnetenwatch haengt an jedes Wahlkreis-Label die Wahl an
+    // ("13 - Magdeburg IV (Sachsen-Anhalt Wahl 2026)"). Auf einer Seite, die
+    // ohnehin genau diese Wahl zeigt, ist das Rauschen.
+    const kurzerWahlkreis = (label) =>
+      label == null ? null : String(label).replace(/\s*\([^)]*\)\s*$/, "").trim();
+
     const nachPartei = new Map();
     for (const r of rows) {
       const key = r.partei || "—";
@@ -290,7 +296,7 @@ router.get(
       gruppe.kandidaturen.push({
         aw_id: r.aw_id,
         name: r.name,
-        wahlkreis: r.wahlkreis,
+        wahlkreis: kurzerWahlkreis(r.wahlkreis),
         wahlkreis_nr: r.wahlkreis_nr == null ? null : Number(r.wahlkreis_nr),
         listenplatz: r.listenplatz == null ? null : Number(r.listenplatz),
         profil_url: r.profil_url,
