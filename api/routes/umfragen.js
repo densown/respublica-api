@@ -44,6 +44,49 @@ function mapWahltermin(r) {
   };
 }
 
+/**
+ * Amtliches Ergebnis einer Wahl, oder null solange keines erfasst ist.
+ *
+ * Die Quelle steht pro Wahl in der Datenbank statt als Konstante wie QUELLE:
+ * Umfragen kommen alle von dawum, Ergebnisse dagegen von der jeweils
+ * zustaendigen Landeswahlleitung.
+ *
+ * `status` ('vorlaeufig' | 'endgueltig') wird bewusst mitgeliefert und nicht
+ * weggelassen — zwischen beiden liegen ein bis zwei Wochen, in denen sich
+ * Zahlen noch aendern koennen. Das Frontend soll das ausweisen koennen.
+ */
+async function ladeErgebnis(wahlterminId, kopf) {
+  if (kopf.ergebnis_status == null) return null;
+
+  const [rows] = await getPool().query(
+    `SELECT p.kuerzel, e.prozent, e.stimmen,
+            e.sitze, e.sitze_direkt, e.sitze_liste
+       FROM wahl_ergebnisse e
+       INNER JOIN parteien p ON p.id = e.partei_id
+      WHERE e.wahltermin_id = ?
+      ORDER BY e.prozent DESC`,
+    [wahlterminId],
+  );
+  if (!rows.length) return null;
+
+  return {
+    status: kopf.ergebnis_status,
+    stand: kopf.ergebnis_stand ?? null,
+    wahlbeteiligung:
+      kopf.wahlbeteiligung == null ? null : Number(kopf.wahlbeteiligung),
+    sitze_gesamt: kopf.sitze_gesamt == null ? null : Number(kopf.sitze_gesamt),
+    quelle: { name: kopf.ergebnis_quelle, url: kopf.ergebnis_quelle_url },
+    parteien: rows.map((r) => ({
+      kuerzel: r.kuerzel,
+      prozent: Number(r.prozent),
+      stimmen: r.stimmen == null ? null : Number(r.stimmen),
+      sitze: r.sitze == null ? null : Number(r.sitze),
+      sitze_direkt: r.sitze_direkt == null ? null : Number(r.sitze_direkt),
+      sitze_liste: r.sitze_liste == null ? null : Number(r.sitze_liste),
+    })),
+  };
+}
+
 /** Liste aller Wahltermine, optional gefiltert. */
 router.get(
   "/wahltermine",
@@ -98,6 +141,8 @@ router.get(
 
     const [rows] = await getPool().query(
       `SELECT w.id, w.slug, w.ebene, w.land, w.name_de, w.name_en, w.datum, w.status,
+              w.wahlbeteiligung, w.sitze_gesamt, w.ergebnis_status,
+              w.ergebnis_stand, w.ergebnis_quelle, w.ergebnis_quelle_url,
               COUNT(u.id) AS umfragen, MAX(u.veroeffentlicht) AS letzte_umfrage
          FROM wahltermine w
          LEFT JOIN umfragen u ON u.wahltermin_id = w.id
@@ -127,6 +172,7 @@ router.get(
         name: p.name,
         farbe_hex: p.farbe_hex,
       })),
+      ergebnis: await ladeErgebnis(rows[0].id, rows[0]),
       quelle: QUELLE,
     });
   }),
@@ -147,7 +193,9 @@ router.get(
     }
 
     const [wahl] = await getPool().query(
-      `SELECT id, slug, ebene, land, name_de, name_en, datum, status
+      `SELECT id, slug, ebene, land, name_de, name_en, datum, status,
+              wahlbeteiligung, sitze_gesamt, ergebnis_status,
+              ergebnis_stand, ergebnis_quelle, ergebnis_quelle_url
          FROM wahltermine WHERE slug = ?`,
       [slug],
     );
@@ -223,6 +271,10 @@ router.get(
         .map(([kuerzel]) => kuerzel),
       institute: institute.map((r) => r.institut),
       umfragen: [...byId.values()],
+      // Bewusst in derselben Antwort statt unter eigenem Endpunkt: die Seite
+      // stellt Umfragen und Ergebnis nebeneinander, ein zweiter Roundtrip
+      // brauechte nur einen zweiten Ladezustand.
+      ergebnis: await ladeErgebnis(wahlterminId, wahl[0]),
       quelle: QUELLE,
     });
   }),
