@@ -18,7 +18,9 @@ Lauf. Claude CLI im Max-Plan, ANTHROPIC_API_KEY wird in lib.claude entfernt.
 
 Modi:
   --dry-run   Klassifizieren, aber nichts schreiben
-  --limit N   hoechstens N Themen
+  --limit N         hoechstens N Themen
+  --max-calls N     mehr Aufrufe fuer einmalige Nachholläufe (Altdaten-Import),
+                    der Cron bleibt bei MAX_CALLS
 
 Cron-tauglich: Exit 0 bei Erfolg, Exit 1 bei Fehler.
 """
@@ -45,7 +47,8 @@ from lib.log import (
 from lib.versammlungen import sync_kategorien
 
 LOCK_NAME = "classify_versammlungen"
-BATCH_SIZE = 120
+# Themen sind kurz; 300 pro Aufruf passen bequem (geprueft 29.09.2026)
+BATCH_SIZE = 300
 MAX_CALLS = 5
 
 # Slug -> Beschreibung fuer den Prompt. Aenderungen hier wirken nur auf neue
@@ -123,7 +126,8 @@ def parse_antwort(text: str | None, erlaubte_ids: set[int]) -> dict[int, str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Versammlungen thematisch klassifizieren")
     ap.add_argument("--dry-run", action="store_true", help="nichts schreiben")
-    ap.add_argument("--limit", type=int, default=BATCH_SIZE * MAX_CALLS)
+    ap.add_argument("--max-calls", type=int, default=MAX_CALLS)
+    ap.add_argument("--limit", type=int, default=None)
     args = ap.parse_args()
 
     if not acquire_lock(LOCK_NAME, log):
@@ -146,7 +150,7 @@ def main() -> int:
              ORDER BY COUNT(*) DESC, MIN(v.datum)
              LIMIT %s
             """,
-            (min(args.limit, BATCH_SIZE * MAX_CALLS),),
+            (min(args.limit or BATCH_SIZE * args.max_calls, BATCH_SIZE * args.max_calls),),
         )
         offen = [(h, thema) for h, thema in cur.fetchall()]
         if not offen:
@@ -162,7 +166,7 @@ def main() -> int:
             batch = offen[start:start + BATCH_SIZE]
             # Kurze laufende Nummern statt 40-stelliger Hashes im Prompt
             items = [(i + 1, thema[:300]) for i, (_, thema) in enumerate(batch)]
-            antwort = call_claude(build_prompt(items), timeout=300, log=log.warning)
+            antwort = call_claude(build_prompt(items), timeout=600, log=log.warning)
             zuordnung = parse_antwort(antwort, {i for i, _ in items})
             fehlend += len(batch) - len(zuordnung)
             if not zuordnung:
