@@ -130,6 +130,7 @@ def test_parse_antwort():
         ("Diplomatie- oder Kriegspolitik", "Diplomatie- oder Kriegspolitik"),
         ("Palliative Geriatrie - besser für alle", "Palliative Geriatrie - besser für alle"),
         ("Gegen den Recht- sruck ''jetzt''", "Gegen den Rechtsruck “jetzt“"),
+        ("FRE&#304;HE&#304;T FÜR &quot;alle&quot;", "FREİHEİT FÜR \"alle\""),
         ("  ", None),
         (None, None),
     ],
@@ -157,6 +158,15 @@ def test_clean_thema(raw, expected):
         # Beginn ohne Jahr, der nach dem Ende laege -> Vorjahr
         ("Mahnwache (vom 01.12. bis 31.01.2027 - täglich)",
          "Mahnwache", date(2026, 12, 1), date(2027, 1, 31), "täglich"),
+        # Altdaten-Varianten
+        ("Mahnwache (vom 01.10. bis 30.12.2019 ? täglich)",
+         "Mahnwache", date(2019, 10, 1), date(2019, 12, 30), "täglich"),
+        ("Mahnwache (vom 07.01.19 bis 30.12.2019 - jeweils Mo.)",
+         "Mahnwache", date(2019, 1, 7), date(2019, 12, 30), "jeweils Mo."),
+        ("Mahnwache (vom 07.01.2019 - 30.12.2019 - jeweils Mo.)",
+         "Mahnwache", date(2019, 1, 7), date(2019, 12, 30), "jeweils Mo."),
+        ("Mahnwache (vom 07.01. 2019 bis 30.12.2019 - täglich)",
+         "Mahnwache", date(2019, 1, 7), date(2019, 12, 30), "täglich"),
         # Suffix doppelt angehaengt
         ("Pandemie- Diktat! (vom 19.01. bis 28.12.2026 - jeweils Mo.) "
          "(vom 19.01. bis 28.12.2026 - jeweils Mo.)",

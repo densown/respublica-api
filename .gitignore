@@ -38,3 +38,4 @@ data/geo/
 build/
 dist/
 .pytest_cache/
+data/versammlungen_altdaten/

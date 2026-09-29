@@ -55,6 +55,7 @@ const EXPECT_200 = [
   "/api/versammlungen/stats",
   "/api/versammlungen/stats?von=2026-09-01&bis=2026-12-31&kategorie=unklassifiziert",
   "/api/versammlungen?buendeln=1&limit=5",
+  "/api/versammlungen?typ=unbekannt&von=2018-01-01&limit=5",
   "/api/versammlungen?buendeln=1&von=2026-01-01&bis=2026-12-31&sort=desc",
 ];
 

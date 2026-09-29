@@ -27,23 +27,42 @@ const { getPool } = require("../lib/db");
 const { asyncHandler, ValidationError } = require("../lib/errors");
 const { parsePagination, parseIntParam } = require("../lib/validate");
 
+// laufend: taeglich abgerufene Liste (Archiv). Die anderen sind einmalig
+// importierte historische Datensaetze (scripts/import_versammlungen_altdaten.py);
+// Zeitraeume, Lizenz und Hinweise liefert `abdeckung` in /stats.
 const QUELLEN = Object.freeze({
   polizei_berlin: {
     name: "Polizei Berlin, Versammlungsbehörde",
     url: "https://www.berlin.de/polizei/service/versammlungsbehoerde/versammlungen-aufzuege/",
     rechtsgrundlage: "§ 12 VersFG BE",
+    laufend: true,
+  },
+  pomerenke_berlin: {
+    name: "The German Protest Registrations Dataset (David Pomerenke, 2023)",
+    url: "https://doi.org/10.5281/zenodo.10094245",
+    lizenz: "CC BY-SA 4.0",
+    laufend: false,
+  },
+  fds_berlin_2023: {
+    name: "Polizei Berlin, IFG-Auskunft via FragDenStaat",
+    url: "https://fragdenstaat.de/anfrage/versammlungen-2023-und-2024/",
+    laufend: false,
   },
 });
+const LAUFENDE_QUELLEN = Object.keys(QUELLEN).filter((q) => QUELLEN[q].laufend);
 
 const HINWEIS =
   "Erfasst sind angezeigte Versammlungen. Spontanversammlungen fehlen, " +
-  "und ob eine Versammlung stattgefunden hat, geht aus den Quellen nicht hervor.";
+  "und ob eine Versammlung stattgefunden hat, geht aus der laufenden Liste nicht hervor. " +
+  "Historische Daten (2018 bis April 2024) stammen aus IFG-Auskünften; wo die Polizei " +
+  "eine Teilnehmendenzahl festgestellt hat, gilt die Versammlung als durchgeführt.";
 
 const ZAEHLWEISE =
   "Eine Serie (etwa eine tägliche Mahnwache) zählt als eine Versammlung, " +
   "jeder ihrer Termine als ein Versammlungstag.";
 
-const TYPEN = new Set(["kundgebung", "aufzug"]);
+// 'unbekannt' = Quellen ohne Ort/Strecke (typ IS NULL)
+const TYPEN = new Set(["kundgebung", "aufzug", "unbekannt"]);
 const STATUS = new Set(["angezeigt", "vergangen", "vor_termin_entfernt", "stattgefunden"]);
 const ERFASSUNG = new Set(["liste", "bericht"]);
 const KATEGORIE_RE = /^[a-z_]{1,32}$/;
@@ -136,7 +155,9 @@ function buildFilter(query) {
   }
 
   const typ = parseSet(query.typ, TYPEN, "typ");
-  if (typ) {
+  if (typ === "unbekannt") {
+    where.push("v.typ IS NULL");
+  } else if (typ) {
     where.push("v.typ = ?");
     params.push(typ);
   }
@@ -281,6 +302,7 @@ router.get(
       [wochen],
       [kategorieMonat],
       [wochentagStunde],
+      [abdeckung],
     ] = await Promise.all([
       pool.query(
         `SELECT SUM(v.status <> 'vor_termin_entfernt') AS versammlungstage,
@@ -300,7 +322,9 @@ router.get(
       pool.query(
         `SELECT DATE_FORMAT(MAX(abgerufen), '%Y-%m-%dT%H:%i:%sZ') AS letzter_abruf,
                 COUNT(*) AS snapshots
-           FROM versammlungen_rohdaten`,
+           FROM versammlungen_rohdaten
+          WHERE quelle IN (?)`,
+        [LAUFENDE_QUELLEN],
       ),
       pool.query(
         `SELECT COALESCE(v.kategorie, 'unklassifiziert') AS kategorie,
@@ -347,6 +371,12 @@ router.get(
           GROUP BY 1, 2
           ORDER BY 1, 2`,
         p,
+      ),
+      pool.query(
+        `SELECT quelle, land, stadt, DATE_FORMAT(von, '%Y-%m-%d') AS von,
+                DATE_FORMAT(bis, '%Y-%m-%d') AS bis, name, url, lizenz, hinweis
+           FROM versammlungen_abdeckung
+          ORDER BY stadt, von`,
       ),
     ]);
 
@@ -397,6 +427,8 @@ router.get(
         stunde: Number(r.stunde),
         anzahl: Number(r.anzahl),
       })),
+      // Zeitraeume mit Daten; alles dazwischen ist Luecke, nicht "null Versammlungen"
+      abdeckung,
       quellen: QUELLEN,
       hinweis: HINWEIS,
       zaehlweise: ZAEHLWEISE,
@@ -423,7 +455,7 @@ router.get(
               DATE_FORMAT(genannt_am, '%Y-%m-%dT%H:%i:%s') AS genannt_am
          FROM versammlung_zahlen
         WHERE versammlung_id = ?
-        ORDER BY FIELD(quelle_typ, 'veranstalter', 'polizei', 'presse', 'schaetzung'), genannt_am`,
+        ORDER BY FIELD(quelle_typ, 'angemeldet', 'veranstalter', 'polizei', 'presse', 'schaetzung'), genannt_am`,
       [id],
     );
     let termine = null;

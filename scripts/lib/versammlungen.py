@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import html
 import re
 import unicodedata
 from datetime import date, datetime, time
@@ -54,12 +55,13 @@ def _join_trennung(m: re.Match) -> str:
 def clean_thema(value) -> str | None:
     """Artefakte aus dem Satz der Quelle entfernen, Inhalt nicht veraendern.
 
+    - HTML-Entitaeten aufloesen ("FRE&#304;HE&#304;T", Polizei-Berlin-XLSX)
     - Leerraum zusammenfassen
     - ",," als oeffnendes, "''" als schliessendes Anfuehrungszeichen
     - Silbentrennung "Hinrichtu- ngen" -> "Hinrichtungen", aber
       "Reise- und Versammlungsfreiheit" bleibt
     """
-    s = clean_text(value)
+    s = clean_text(html.unescape(str(value)) if value is not None else None)
     if s is None:
         return None
     s = s.replace(",,", "„").replace("''", "“")
@@ -70,11 +72,19 @@ def clean_thema(value) -> str | None:
 # "(vom 01.08. bis 01.10.2026 - täglich)", "(vom 07.09.2026 bis 27.09.2027 -
 # jeweils Mo.)", "(vom 06.11. bis 07.11.2026,Fr.,Sa.)". Fehlt beim Beginn das
 # Jahr, gilt das Jahr des Endes (geprueft am Berliner Bestand 29.09.2026).
+# Altdaten 2018-2022 zusaetzlich: "?" statt Gedankenstrich (Kodierungsfehler),
+# zweistellige Jahre, "vom 01.01.2019 - 31.12.2019", "vom 01.01. 2019 bis".
 _SERIE_RE = re.compile(
-    r"\s*\(\s*vom\s+(\d{1,2})\.(\d{1,2})\.(\d{4})?\s*bis\s+(\d{1,2})\.(\d{1,2})\.(\d{4})"
-    r"\s*(?:[-,]\s*([^)]*?))?\s*\)\s*$",
+    r"\s*\(\s*vom\s+(\d{1,2})\.(\d{1,2})\.\s?(\d{4}|\d{2})?\s*(?:bis|-|–)\s*"
+    r"(\d{1,2})\.(\d{1,2})\.\s?(\d{4}|\d{2})"
+    r"\s*(?:[-,?–—]\s*([^)]*?))?\s*\)\s*$",
     re.I,
 )
+
+
+def _jahr(s: str) -> int:
+    j = int(s)
+    return j + 2000 if j < 100 else j
 
 
 def split_serie(thema: str | None) -> tuple[str | None, date | None, date | None, str | None]:
@@ -88,8 +98,8 @@ def split_serie(thema: str | None) -> tuple[str | None, date | None, date | None
     if not m:
         return thema, None, None, None
     try:
-        ende = date(int(m[6]), int(m[5]), int(m[4]))
-        jahr = int(m[3]) if m[3] else ende.year
+        ende = date(_jahr(m[6]), int(m[5]), int(m[4]))
+        jahr = _jahr(m[3]) if m[3] else ende.year
         beginn = date(jahr, int(m[2]), int(m[1]))
         if not m[3] and beginn > ende:
             beginn = date(jahr - 1, int(m[2]), int(m[1]))
@@ -205,9 +215,17 @@ def build_row(
     ort: str | None,
     aufzugsstrecke: str | None,
     erfassung: str = "liste",
+    typ_bekannt: bool = True,
 ) -> dict:
-    """Normalisierte Zeile fuer `versammlungen` aus bereits zugeordneten Feldern."""
+    """Normalisierte Zeile fuer `versammlungen` aus bereits zugeordneten Feldern.
+
+    `typ_bekannt=False` fuer Quellen ohne Ort/Strecke: dann bleibt `typ` NULL,
+    statt jede Versammlung als Kundgebung zu zaehlen.
+    """
     thema, serie_von, serie_bis, rhythmus = split_serie(clean_thema(thema_roh))
+    # '"Sylvester vor dem Knast" (vom ...)': Anfuehrungszeichen um das ganze Thema
+    if thema and len(thema) > 2 and thema[0] == thema[-1] == '"' and thema.count('"') == 2:
+        thema = thema[1:-1].strip() or None
     plz = plz.strip()[:10] if plz else None
     return {
         "quelle_id": make_quelle_id(datum, von, plz, thema),
@@ -220,7 +238,7 @@ def build_row(
         "plz": plz,
         "ort": ort[:500] if ort else None,
         "aufzugsstrecke": aufzugsstrecke,
-        "typ": "aufzug" if aufzugsstrecke else "kundgebung",
+        "typ": ("aufzug" if aufzugsstrecke else "kundgebung") if typ_bekannt else None,
         "serie_id": make_serie_id(thema, plz, serie_von) if serie_von else None,
         "serie_von": serie_von,
         "serie_bis": serie_bis,
