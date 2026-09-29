@@ -53,6 +53,9 @@ const EXPECT_200 = [
   "/api/versammlungen",
   "/api/versammlungen?von=2026-01-01&bis=2026-12-31&sort=desc",
   "/api/versammlungen/stats",
+  "/api/versammlungen/stats?von=2026-09-01&bis=2026-12-31&kategorie=unklassifiziert",
+  "/api/versammlungen?buendeln=1&limit=5",
+  "/api/versammlungen?buendeln=1&von=2026-01-01&bis=2026-12-31&sort=desc",
 ];
 
 // Endpoints, die je nach Query 200/400/404 liefern duerfen, aber kein 5xx.
@@ -95,6 +98,9 @@ const NO_5XX = [
   "/api/versammlungen/999999999",
   "/api/versammlungen?von=kaputt",
   "/api/versammlungen?typ=unbekannt",
+  "/api/versammlungen?serie=kaputt",
+  "/api/versammlungen/stats?von=2026-12-31&bis=2026-01-01",
+  "/api/versammlungen/stats?erfassung=unbekannt",
 ];
 
 test("List-/Stats-Endpoints liefern 200", async (t) => {

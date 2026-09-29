@@ -5,14 +5,15 @@ from datetime import date, time
 import pytest
 
 from classify_versammlungen import parse_antwort
-from fetch_versammlungen_berlin import (
-    find_records,
+from fetch_versammlungen_berlin import find_records, parse_payload, parse_record
+from lib.versammlungen import (
+    clean_thema,
+    is_ganztaegig,
     make_quelle_id,
     normalize_key,
     parse_datum,
-    parse_payload,
-    parse_record,
     parse_zeit,
+    split_serie,
 )
 
 
@@ -101,7 +102,10 @@ def test_quelle_id_stabil_bei_formatierung():
 
 def test_parse_payload_dedupliziert():
     rec = {"datum": "01.10.2026", "von": "10:00", "thema": "X", "plz": "10115"}
-    assert len(parse_payload({"index": [rec, dict(rec), {"thema": "kein Datum"}]})) == 1
+    diag = {}
+    assert len(parse_payload({"index": [rec, dict(rec), {"thema": "kein Datum"}]}, diag)) == 1
+    assert len(diag["duplikate"]) == 1
+    assert len(diag["ohne_datum"]) == 1
 
 
 def test_parse_antwort():
@@ -109,3 +113,98 @@ def test_parse_antwort():
     assert parse_antwort(text, {1, 2}) == {1: "klima_umwelt"}
     assert parse_antwort("kein json", {1}) == {}
     assert parse_antwort(None, {1}) == {}
+
+
+# ---------------------------------------------------------------------------
+# Parser v2 (Migration 017), Beispiele aus dem Berliner Abruf vom 29.09.2026
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        (",,Protest gegen die fortlaufenden  Hinrichtu- ngen unschuldiger Menschen im Iran",
+         "„Protest gegen die fortlaufenden Hinrichtungen unschuldiger Menschen im Iran"),
+        ("Verfolgung der Falun Gong Praktizieren- den beenden",
+         "Verfolgung der Falun Gong Praktizierenden beenden"),
+        ("Für Reise- und Versammlungs- freiheit", "Für Reise- und Versammlungsfreiheit"),
+        ("Diplomatie- oder Kriegspolitik", "Diplomatie- oder Kriegspolitik"),
+        ("Palliative Geriatrie - besser für alle", "Palliative Geriatrie - besser für alle"),
+        ("Gegen den Recht- sruck ''jetzt''", "Gegen den Rechtsruck “jetzt“"),
+        ("  ", None),
+        (None, None),
+    ],
+)
+def test_clean_thema(raw, expected):
+    assert clean_thema(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw,thema,von,bis,rhythmus",
+    [
+        ("Mahnwache für Menschenrechte im Iran. -> Verlängerung der Dauermahnwache "
+         "(vom 01.08. bis 01.10.2026 - täglich)",
+         "Mahnwache für Menschenrechte im Iran. -> Verlängerung der Dauermahnwache",
+         date(2026, 8, 1), date(2026, 10, 1), "täglich"),
+        ("Mahnwache (vom 07.09.2026 bis 27.09.2027 - jeweils Mo.)",
+         "Mahnwache", date(2026, 9, 7), date(2027, 9, 27), "jeweils Mo."),
+        ("Gewaltfreie Psychiatrie jetzt! (vom 25.11. bis 26.11.2026,Mi.,Do.)",
+         "Gewaltfreie Psychiatrie jetzt!", date(2026, 11, 25), date(2026, 11, 26),
+         "jeweils Mi., Do."),
+        ("Kundgebung (vom 03.10. bis 02.12.2026 - jeweils Mi.,Sa.,So.)",
+         "Kundgebung", date(2026, 10, 3), date(2026, 12, 2), "jeweils Mi., Sa., So."),
+        ("Kundgebung (vom 05.01. bis 28.12.2026 - jeweils )",
+         "Kundgebung", date(2026, 1, 5), date(2026, 12, 28), None),
+        # Beginn ohne Jahr, der nach dem Ende laege -> Vorjahr
+        ("Mahnwache (vom 01.12. bis 31.01.2027 - täglich)",
+         "Mahnwache", date(2026, 12, 1), date(2027, 1, 31), "täglich"),
+        # Suffix doppelt angehaengt
+        ("Pandemie- Diktat! (vom 19.01. bis 28.12.2026 - jeweils Mo.) "
+         "(vom 19.01. bis 28.12.2026 - jeweils Mo.)",
+         "Pandemie- Diktat!", date(2026, 1, 19), date(2026, 12, 28), "jeweils Mo."),
+        # Tippfehler der Quelle: bleibt Einzeltermin, Thema unveraendert
+        ("Ohne JESUS kein Frieden (vom 16.01. bis 31.1202027,Sa.)",
+         "Ohne JESUS kein Frieden (vom 16.01. bis 31.1202027,Sa.)", None, None, None),
+        ("Mietenstopp jetzt", "Mietenstopp jetzt", None, None, None),
+    ],
+)
+def test_split_serie(raw, thema, von, bis, rhythmus):
+    assert split_serie(raw) == (thema, von, bis, rhythmus)
+
+
+def _berlin(datum, thema, von="18:00", bis="19:00"):
+    return {"id": 1, "datum": datum, "von": von, "bis": bis, "thema": thema,
+            "plz": "10557", "strasse_nr": "Platz der Republik 1", "aufzugsstrecke": ""}
+
+
+def test_serie_ueberlebt_verlaengerung():
+    """Neues Serienende darf weder Termin- noch Serien-ID aendern."""
+    alt = parse_record(_berlin("29.09.2026", "Dauermahnwache (vom 01.08. bis 01.10.2026 - täglich)"))
+    neu = parse_record(_berlin("29.09.2026", "Dauermahnwache (vom 01.08. bis 01.11.2026 - täglich)"))
+    anderer_tag = parse_record(_berlin("30.09.2026", "Dauermahnwache (vom 01.08. bis 01.11.2026 - täglich)"))
+    assert alt["quelle_id"] == neu["quelle_id"]
+    assert alt["serie_id"] == neu["serie_id"] == anderer_tag["serie_id"]
+    assert alt["quelle_id"] != anderer_tag["quelle_id"]
+    assert neu["serie_bis"] == date(2026, 11, 1)
+    assert alt["thema_hash"] == anderer_tag["thema_hash"]
+
+
+def test_einzeltermin_ohne_serie():
+    row = parse_record(_berlin("01.10.2026", ",,Mietenstopp jetzt''"))
+    assert row["serie_id"] is None
+    assert row["thema"] == "„Mietenstopp jetzt“"
+    assert row["erfassung"] == "liste"
+
+
+@pytest.mark.parametrize(
+    "von,bis,expected",
+    [
+        (time(0), time(23, 59), True),
+        (time(0), time(0), True),
+        (time(0), None, True),
+        (time(0), time(14), False),
+        (time(12), time(15), False),
+        (None, None, False),
+    ],
+)
+def test_ganztaegig(von, bis, expected):
+    assert is_ganztaegig(von, bis) is expected

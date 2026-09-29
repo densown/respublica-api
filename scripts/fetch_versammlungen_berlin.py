@@ -16,6 +16,9 @@ Schritt 2 laeuft auch dann, wenn das Parsen scheitert. Das Archiv ist
 wichtiger als der Import; aus den Rohdaten laesst sich mit --rebuild alles
 neu aufbauen.
 
+Gemeinsame Logik (Themenbereinigung, Serien, Upsert, Status, Rebuild) liegt
+in lib/versammlungen.py; hier stehen nur Abruf und Feldzuordnung.
+
 Personenbezogene Daten liefert die Quelle nicht, und das Skript speichert
 auch keine (siehe migrations/016_versammlungen.sql).
 
@@ -30,14 +33,10 @@ Cron-tauglich: Exit 0 bei Erfolg, Exit 1 bei Fehler.
 from __future__ import annotations
 
 import argparse
-import gzip
-import hashlib
 import json
 import os
-import re
 import sys
-import unicodedata
-from datetime import date, datetime, time, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -52,6 +51,18 @@ from lib.log import (
     install_signal_handlers,
     release_lock,
 )
+from lib.versammlungen import (
+    apply_snapshot,
+    archive_raw,
+    build_row,
+    clean_text,
+    dedupe,
+    normalize_key,
+    parse_datum,
+    parse_zeit,
+    rebuild,
+    sync_kategorien,
+)
 
 LOCK_NAME = "fetch_versammlungen_berlin"
 QUELLE = "polizei_berlin"
@@ -65,11 +76,6 @@ DEFAULT_URL = (
 )
 TIMEOUT = 60
 
-# Faellt die Liste gegenueber dem Bestand um mehr als diesen Anteil,
-# wird nichts als "vor Termin entfernt" markiert. Schuetzt vor
-# Teilantworten und Wartungsseiten, die sonst hunderte Absagen erzeugen.
-MIN_ANTEIL_FUER_ENTFERNT = 0.5
-
 log = get_logger(LOCK_NAME)
 
 _running = True
@@ -81,7 +87,7 @@ def _stop() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Reine Parsing-Helfer (ohne DB/Netz, siehe scripts/tests)
+# Feldzuordnung Berlin (reine Funktionen, siehe scripts/tests)
 # ---------------------------------------------------------------------------
 
 # Feldnamen der Quelle, normalisiert (klein, ohne Umlaute/Sonderzeichen).
@@ -98,21 +104,7 @@ FELDER = {
 }
 
 # Platzhalter, die "kein Aufzug" bedeuten
-LEERE_STRECKE = {"", "-", "--", "keine", "entfaellt", "k.a.", "ka", "n/a"}
-
-
-def normalize_key(key: str) -> str:
-    """'Straße/Nr.' -> 'strassenr', 'Uhrzeit von' -> 'uhrzeitvon'."""
-    s = str(key).strip().lower().replace("ß", "ss")
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-z0-9]", "", s)
-
-
-def clean_text(value) -> str | None:
-    if value is None:
-        return None
-    s = re.sub(r"\s+", " ", str(value)).strip()
-    return s or None
+LEERE_STRECKE = {normalize_key(x) for x in ("", "-", "--", "keine", "entfaellt", "k.a.", "ka", "n/a")}
 
 
 def find_records(payload) -> list[dict]:
@@ -142,201 +134,51 @@ def pick(record: dict, feld: str) -> str | None:
     return None
 
 
-def parse_datum(value: str | None) -> date | None:
-    """'29.09.2026', '29.9.26' oder '2026-09-29'."""
-    if not value:
-        return None
-    s = value.strip()
-    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", s)
-    if m:
-        y, mo, d = int(m[1]), int(m[2]), int(m[3])
-    else:
-        m = re.search(r"(\d{1,2})\.(\d{1,2})\.(\d{2,4})", s)
-        if not m:
-            return None
-        d, mo, y = int(m[1]), int(m[2]), int(m[3])
-        if y < 100:
-            y += 2000
-    try:
-        return date(y, mo, d)
-    except ValueError:
-        return None
-
-
-def parse_zeit(value: str | None) -> time | None:
-    """'10:00', '10.00 Uhr', '9 Uhr' -> time; alles andere -> None."""
-    if not value:
-        return None
-    m = re.search(r"(\d{1,2})(?:[:.](\d{2}))?", value)
-    if not m:
-        return None
-    h, mi = int(m[1]), int(m[2] or 0)
-    if h == 24 and mi == 0:
-        return time(23, 59)
-    if 0 <= h <= 23 and 0 <= mi <= 59:
-        return time(h, mi)
-    return None
-
-
-def normalize_thema(thema: str | None) -> str:
-    """Fuer den Hash: Gross-/Kleinschreibung und Satzzeichen egal."""
-    return re.sub(r"[^a-z0-9]", "", normalize_key(thema or ""))
-
-
-def make_quelle_id(datum: date, von: time | None, plz: str | None, thema: str | None) -> str:
-    """Stabile ID aus dem Inhalt.
-
-    Bewusst nicht die 'id' der Quelle: bei berlin.de-Listen ist nicht
-    gesichert, dass sie ueber Aktualisierungen hinweg gleich bleibt.
-    """
-    basis = "|".join([
-        datum.isoformat(),
-        von.strftime("%H:%M") if von else "",
-        (plz or "").strip(),
-        normalize_thema(thema),
-    ])
-    return hashlib.sha1(basis.encode("utf-8")).hexdigest()
-
-
 def parse_record(record: dict) -> dict | None:
     """Ein Quelleintrag -> normalisierte Zeile, oder None ohne gueltiges Datum."""
     datum = parse_datum(pick(record, "datum"))
     if datum is None:
         return None
-    von = parse_zeit(pick(record, "von"))
-    plz = pick(record, "plz")
-    thema = pick(record, "thema")
-    ort = pick(record, "ort")
     strecke = pick(record, "aufzugsstrecke")
-    if strecke is not None and normalize_key(strecke) in {normalize_key(x) for x in LEERE_STRECKE}:
+    if strecke is not None and normalize_key(strecke) in LEERE_STRECKE:
         strecke = None
-    return {
-        "quelle_id": make_quelle_id(datum, von, plz, thema),
-        "datum": datum,
-        "von": von,
-        "bis": parse_zeit(pick(record, "bis")),
-        "thema": thema,
-        "plz": plz[:10] if plz else None,
-        "ort": ort[:500] if ort else None,
-        "aufzugsstrecke": strecke,
-        "typ": "aufzug" if strecke else "kundgebung",
-    }
+    return build_row(
+        datum=datum,
+        von=parse_zeit(pick(record, "von")),
+        bis=parse_zeit(pick(record, "bis")),
+        thema_roh=pick(record, "thema"),
+        plz=pick(record, "plz"),
+        ort=pick(record, "ort"),
+        aufzugsstrecke=strecke,
+    )
 
 
-def parse_payload(payload) -> list[dict]:
-    """Alle gueltigen Eintraege, Duplikate (gleiche quelle_id) zusammengefasst."""
-    rows: dict[str, dict] = {}
+def parse_payload(payload, diag: dict | None = None) -> list[dict]:
+    """Alle gueltigen Eintraege, Duplikate (gleiche quelle_id) zusammengefasst.
+
+    `diag` sammelt verworfene Eintraege ('ohne_datum', 'duplikate') fuers Log.
+    """
+    rows = []
     for record in find_records(payload):
         row = parse_record(record)
-        if row is not None:
-            rows[row["quelle_id"]] = row
-    return list(rows.values())
+        if row is None:
+            if diag is not None:
+                diag.setdefault("ohne_datum", []).append(record)
+            continue
+        rows.append(row)
+    return dedupe(rows, diag)
 
 
-# ---------------------------------------------------------------------------
-# DB
-# ---------------------------------------------------------------------------
-
-def archive_raw(cur, raw: bytes, anzahl: int | None, jetzt: datetime) -> bool:
-    """Rohdaten ablegen. True = neu archiviert, False = identisch mit Bestand."""
-    sha = hashlib.sha256(raw).hexdigest()
-    cur.execute(
-        """
-        INSERT IGNORE INTO versammlungen_rohdaten
-          (quelle, abgerufen, sha256, anzahl, bytes, inhalt_gz)
-        VALUES (%s,%s,%s,%s,%s,%s)
-        """,
-        (QUELLE, jetzt, sha, anzahl, len(raw), gzip.compress(raw, compresslevel=9)),
-    )
-    return cur.rowcount == 1
-
-
-def apply_snapshot(cur, rows: list[dict], jetzt: datetime) -> dict:
-    """Upsert einer Liste und Status-Fortschreibung relativ zu `jetzt`."""
-    stats = {"neu": 0, "aktualisiert": 0, "vergangen": 0, "entfernt": 0}
-    heute = jetzt.date()
-
-    for r in rows:
-        cur.execute(
-            """
-            INSERT INTO versammlungen
-              (quelle, quelle_id, land, stadt, datum, von, bis, thema, plz, ort,
-               aufzugsstrecke, typ, status, erstmals_gesehen, zuletzt_gesehen)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'angezeigt',%s,%s)
-            ON DUPLICATE KEY UPDATE
-              bis            = VALUES(bis),
-              ort            = VALUES(ort),
-              aufzugsstrecke = VALUES(aufzugsstrecke),
-              typ            = VALUES(typ),
-              status         = 'angezeigt',
-              zuletzt_gesehen= VALUES(zuletzt_gesehen)
-            """,
-            (
-                QUELLE, r["quelle_id"], LAND, STADT, r["datum"], r["von"], r["bis"],
-                r["thema"], r["plz"], r["ort"], r["aufzugsstrecke"], r["typ"],
-                jetzt, jetzt,
-            ),
+def log_diag(diag: dict) -> None:
+    for record in diag.get("ohne_datum", [])[:5]:
+        log.warning("Ohne gueltiges Datum verworfen: %s", record)
+    for row in diag.get("duplikate", [])[:5]:
+        log.info("Doppelt gelistet: %s %s %s | %s", row["datum"], row["von"], row["plz"], row["thema"])
+    if diag:
+        log.info(
+            "Verworfen: %d ohne Datum, %d doppelt gelistet",
+            len(diag.get("ohne_datum", [])), len(diag.get("duplikate", [])),
         )
-        if cur.rowcount == 1:
-            stats["neu"] += 1
-        elif cur.rowcount == 2:
-            stats["aktualisiert"] += 1
-
-    # Termin liegt zurueck -> vergangen. Heute bleibt 'angezeigt', weil die
-    # Liste tagsueber aktualisiert wird und laufende Termine herausfallen.
-    cur.execute(
-        "UPDATE versammlungen SET status = 'vergangen' "
-        "WHERE quelle = %s AND status = 'angezeigt' AND datum < %s",
-        (QUELLE, heute),
-    )
-    stats["vergangen"] = cur.rowcount
-
-    # Zukuenftige Termine, die nicht mehr gelistet sind
-    cur.execute(
-        "SELECT COUNT(*) FROM versammlungen "
-        "WHERE quelle = %s AND status = 'angezeigt' AND datum > %s",
-        (QUELLE, heute),
-    )
-    bestand = cur.fetchone()[0]
-    aktuell = sum(1 for r in rows if r["datum"] > heute)
-    if bestand and aktuell < bestand * MIN_ANTEIL_FUER_ENTFERNT:
-        log.warning(
-            "Nur %d von %d kommenden Terminen gelistet, Absage-Markierung ausgesetzt",
-            aktuell, bestand,
-        )
-    else:
-        cur.execute(
-            "UPDATE versammlungen SET status = 'vor_termin_entfernt' "
-            "WHERE quelle = %s AND status = 'angezeigt' AND datum > %s "
-            "AND zuletzt_gesehen < %s",
-            (QUELLE, heute, jetzt),
-        )
-        stats["entfernt"] = cur.rowcount
-    return stats
-
-
-def rebuild(cur, quiet: bool) -> None:
-    """`versammlungen` aus dem Rohdaten-Archiv neu aufbauen."""
-    cur.execute("DELETE FROM versammlungen WHERE quelle = %s", (QUELLE,))
-    log.info("%d Zeilen geloescht, baue aus Archiv neu auf", cur.rowcount)
-    cur.execute(
-        "SELECT id FROM versammlungen_rohdaten WHERE quelle = %s ORDER BY abgerufen",
-        (QUELLE,),
-    )
-    ids = [r[0] for r in cur.fetchall()]
-    for rid in ids:
-        if not _running:
-            raise RuntimeError("Abbruch angefordert, Rebuild unvollstaendig")
-        cur.execute(
-            "SELECT abgerufen, inhalt_gz FROM versammlungen_rohdaten WHERE id = %s",
-            (rid,),
-        )
-        abgerufen, blob = cur.fetchone()
-        rows = parse_payload(json.loads(gzip.decompress(blob)))
-        stats = apply_snapshot(cur, rows, abgerufen)
-        if not quiet:
-            log.info("Snapshot %s (%s): %d Eintraege, %s", rid, abgerufen, len(rows), stats)
-    log.info("Rebuild fertig: %d Snapshots", len(ids))
 
 
 def main() -> int:
@@ -356,7 +198,11 @@ def main() -> int:
 
         if args.rebuild:
             conn = get_db(autocommit=False)
-            rebuild(conn.cursor(), args.quiet)
+            rebuild(
+                conn.cursor(), QUELLE, LAND, STADT,
+                lambda raw: parse_payload(json.loads(raw)),
+                log, running=lambda: _running, quiet=args.quiet,
+            )
             conn.commit()
             return 0
 
@@ -372,8 +218,11 @@ def main() -> int:
         try:
             payload = json.loads(raw)
             gesamt = len(find_records(payload))
-            rows = parse_payload(payload)
-            log.info("%d Eintraege, davon %d mit gueltigem Datum", gesamt, len(rows))
+            diag: dict = {}
+            rows = parse_payload(payload, diag)
+            log.info("%d Eintraege, %d Versammlungstage, davon %d in Serien",
+                     gesamt, len(rows), sum(1 for r in rows if r["serie_id"]))
+            log_diag(diag)
             if gesamt and not rows:
                 log.error("Kein Eintrag lesbar, Feldnamen der Quelle pruefen: %s",
                           sorted(find_records(payload)[0].keys()))
@@ -383,24 +232,28 @@ def main() -> int:
 
         if args.dry_run:
             for r in (rows or [])[:10]:
-                log.info("[dry-run] %s %s %s | %s", r["datum"], r["von"], r["typ"], r["thema"])
+                log.info("[dry-run] %s %s %s %s | %s", r["datum"], r["von"], r["typ"],
+                         r["serie_rhythmus"] or "einzeln", r["thema"])
             log.info("[dry-run] nichts geschrieben")
             return 0
 
         conn = get_db(autocommit=False)
         cur = conn.cursor()
-        neu_archiviert = archive_raw(cur, raw, gesamt, jetzt)
+        neu_archiviert = archive_raw(cur, QUELLE, raw, gesamt, jetzt)
         conn.commit()
         log.info("Rohdaten %s", "archiviert" if neu_archiviert else "unveraendert")
 
         if not rows:
             return 1 if rows is None or gesamt else 0
 
-        stats = apply_snapshot(cur, rows, jetzt)
+        stats = apply_snapshot(cur, QUELLE, LAND, STADT, rows, jetzt, log)
+        kategorien = sync_kategorien(cur)
         conn.commit()
         log.info(
-            "Fertig: %d neu, %d aktualisiert, %d vergangen, %d vor Termin entfernt",
+            "Fertig: %d neu, %d aktualisiert, %d vergangen, %d vor Termin entfernt, "
+            "%d Kategorien aus Cache",
             stats["neu"], stats["aktualisiert"], stats["vergangen"], stats["entfernt"],
+            kategorien,
         )
         return 0
 
