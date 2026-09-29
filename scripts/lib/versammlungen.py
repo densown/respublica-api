@@ -115,6 +115,9 @@ def split_serie(thema: str | None) -> tuple[str | None, date | None, date | None
             rhythmus = "jeweils " + rhythmus
         if rhythmus.lower() == "jeweils":
             rhythmus = None
+        # "jeweils Mo., Di., Mi., Do., Fr., Sa., So." ist taeglich
+        elif rhythmus and len(set(re.findall(r"(Mo|Di|Mi|Do|Fr|Sa|So)\.", rhythmus))) == 7:
+            rhythmus = "täglich"
     rest = thema[: m.start()]
     # Manche Eintraege tragen das Suffix doppelt
     while (m2 := _SERIE_RE.search(rest)) is not None:

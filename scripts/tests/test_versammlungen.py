@@ -153,6 +153,10 @@ def test_clean_thema(raw, expected):
          "jeweils Mi., Do."),
         ("Kundgebung (vom 03.10. bis 02.12.2026 - jeweils Mi.,Sa.,So.)",
          "Kundgebung", date(2026, 10, 3), date(2026, 12, 2), "jeweils Mi., Sa., So."),
+        ("Mahnwache (vom 01.01. bis 31.12.2026 - jeweils Mo., Di., Mi., Do., Fr., Sa., So.)",
+         "Mahnwache", date(2026, 1, 1), date(2026, 12, 31), "täglich"),
+        ("Mahnwache (vom 01.01. bis 31.12.2026 - jeweils Mo.,Di.,Mi.,Do.,Fr.)",
+         "Mahnwache", date(2026, 1, 1), date(2026, 12, 31), "jeweils Mo., Di., Mi., Do., Fr."),
         ("Kundgebung (vom 05.01. bis 28.12.2026 - jeweils )",
          "Kundgebung", date(2026, 1, 5), date(2026, 12, 28), None),
         # Beginn ohne Jahr, der nach dem Ende laege -> Vorjahr
