@@ -6,10 +6,14 @@ const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
 
-/** Urteile: Liste */
+/**
+ * Urteile: Liste. Mit ?gesetz=KUERZEL nur Urteile, die dieses Gesetz
+ * zitieren, dann zusaetzlich gesetze[] je Urteil (fuer die Gesetz-Detailseite).
+ */
 router.get("/urteile", asyncHandler(async (req, res) => {
   const rechtsgebiet = req.query.rechtsgebiet || null;
   const gericht = req.query.gericht || null;
+  const gesetz = String(req.query.gesetz ?? "").trim() || null;
   let query = `
     SELECT id, doc_id, gericht, senat, typ, datum,
            aktenzeichen, leitsatz, zusammenfassung,
@@ -20,9 +24,24 @@ router.get("/urteile", asyncHandler(async (req, res) => {
   const params = [];
   if (rechtsgebiet) { query += ` AND rechtsgebiet LIKE ?`; params.push(`%${rechtsgebiet}%`); }
   if (gericht)      { query += ` AND gericht = ?`;         params.push(gericht); }
+  if (gesetz) {
+    query += ` AND id IN (SELECT urteil_id FROM urteil_gesetze WHERE gesetz_kuerzel = ?)`;
+    params.push(gesetz);
+  }
   query += ` ORDER BY datum DESC, id DESC`;
   const [rows] = await getPool().query(query, params);
-  res.json(rows.map(r => ({ ...r, datum: formatDate(r.datum) })));
+  const out = rows.map(r => ({ ...r, datum: formatDate(r.datum) }));
+  if (gesetz && out.length) {
+    const [links] = await getPool().query(
+      `SELECT urteil_id, gesetz_kuerzel FROM urteil_gesetze
+       WHERE urteil_id IN (${out.map(() => "?").join(",")})`,
+      out.map(r => r.id)
+    );
+    const byUrteil = new Map(out.map(r => [r.id, []]));
+    for (const l of links) byUrteil.get(l.urteil_id).push(l.gesetz_kuerzel);
+    for (const r of out) r.gesetze = byUrteil.get(r.id);
+  }
+  res.json(out);
 }));
 
 /** Urteile: Einzeln */

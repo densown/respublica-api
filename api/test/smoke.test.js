@@ -25,6 +25,8 @@ test.after(async () => {
 const EXPECT_200 = [
   "/api/health",
   "/api/gesetze?limit=1",
+  "/api/gesetze/liste?limit=1",
+  "/api/gesetze/liste?search=bgb&bereich=zivil&filter=mit_lobby&sort=az",
   "/api/gesetze/stats",
   "/api/abstimmungen/latest",
   "/api/bundestag/sitzverteilung",
@@ -36,6 +38,7 @@ const EXPECT_200 = [
   "/api/eu-urteile/stats",
   "/api/eu-urteile?limit=1",
   "/api/urteile?limit=1",
+  "/api/urteile?gesetz=BGB",
   "/api/lobbyregister?limit=1",
   "/api/lobbyregister/stats",
   "/api/lobbyregister/by-field",
@@ -111,8 +114,8 @@ test("Kein Endpoint liefert 5xx (Handler crasht nicht)", async (t) => {
 
 test("Detail-Route mit echter ID liefert 200 (happy path)", async (t) => {
   // echte gesetz-id holen und den Detail-Endpoint exerzieren
-  const list = await agent.get("/api/gesetze?limit=1");
-  const id = Array.isArray(list.body) ? list.body[0]?.id : list.body?.data?.[0]?.id;
+  const list = await agent.get("/api/gesetze/liste?limit=1");
+  const id = list.body?.items?.[0]?.id;
   if (!id) {
     // CI laeuft gegen ein leeres Schema -> kein Happy-Path moeglich, ueberspringen
     t.skip("keine Daten in DB (z.B. CI gegen leeres Schema)");

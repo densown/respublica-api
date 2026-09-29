@@ -102,7 +102,8 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 
 | Methode | Pfad | Kurzbeschreibung |
 |---------|------|------------------|
-| GET | `/api/gesetze` | Liste Gesetzesänderungen (ohne Diff), inkl. GII-Felder `titel`, `amtliche_abkuerzung`, `ausfertigung_datum`, … |
+| GET | `/api/gesetze` | Liste Gesetzesänderungen (ohne Diff), inkl. GII-Felder `titel`, `amtliche_abkuerzung`, `ausfertigung_datum`, … Komplett, rund 10 MB (WordPress `page-gesetze.php`, `page-admin.php`) |
+| GET | `/api/gesetze/liste` | Dieselben Zeilen seitenweise: `{ total, limit, offset, items }`. Query `limit` (Standard 20, max 100), `offset`, `search`, `bereich` (`zivil`, `straf`, `sozial`, `verfassung`, `steuer_arbeit`, `bundes`), `filter` (`mit_lobby`, `klartitel`, `mit_zusammenfassung`), `sort` (`new`, `old`, `az`). Nutzt das Dashboard |
 | GET | `/api/gesetze/stats` | Zähler Gesetze / Änderungen |
 | GET | `/api/gesetze/:id` | Einzeländerung inkl. Diff und GII-Metadaten (`letzter_stand`, …) |
 | GET | `/api/abstimmungen/latest` | Neueste namentliche Abstimmungen (limit query) |
@@ -115,7 +116,7 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/bundestag/poll-votes/:poll_id` | Einzelstimmen einer Abstimmung (`mandate_id` → `vote`) |
 | GET | `/api/abgeordnete` | Alle Abgeordneten (id, aw_id, Name, Fraktion, Wahlkreis, Foto, Profil) |
 | GET | `/api/abgeordnete/:aw_id/votes` | Abstimmungshistorie eines Abgeordneten |
-| GET | `/api/urteile` | Urteile Liste |
+| GET | `/api/urteile` | Urteile Liste. Query `gericht`, `rechtsgebiet`; mit `gesetz=KUERZEL` nur Urteile zu diesem Gesetz, dann mit `gesetze[]` je Urteil |
 | GET | `/api/urteile/:id` | Urteil Detail |
 | GET | `/api/eu-recht/stats` | Statistik EU-Rechtsakte |
 | GET | `/api/eu-recht` | EU-Rechtsakte Liste |

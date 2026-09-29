@@ -5,22 +5,26 @@ const router = express.Router();
 const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
+const { parsePagination } = require("../lib/validate");
 
-/** Liste: kein diff (kann sehr groß sein) */
-router.get("/gesetze", asyncHandler(async (req, res) => {
-  const [rows] = await getPool().query(
-    `SELECT
+const TITEL_SQL =
+  "COALESCE(NULLIF(TRIM(g.titel_offiziell), ''), NULLIF(TRIM(g.name), ''), g.kuerzel)";
+const HAS_LOBBY_SQL =
+  "EXISTS(SELECT 1 FROM lobby_gesetze lg WHERE lg.gesetz_id = g.id)";
+
+/** Spalten der Listenansicht: kein diff (kann sehr groß sein) */
+const LIST_SELECT = `SELECT
        a.id,
        g.kuerzel AS kuerzel,
-       COALESCE(NULLIF(TRIM(g.titel_offiziell), ''), NULLIF(TRIM(g.name), ''), g.kuerzel) AS name,
-       COALESCE(NULLIF(TRIM(g.titel_offiziell), ''), NULLIF(TRIM(g.name), ''), g.kuerzel) AS titel,
+       ${TITEL_SQL} AS name,
+       ${TITEL_SQL} AS titel,
        g.amtliche_abkuerzung AS amtliche_abkuerzung,
        DATE_FORMAT(g.ausfertigung_datum, '%Y-%m-%d') AS ausfertigung_datum,
        g.fundstelle_periodikum AS fundstelle_periodikum,
        g.fundstelle_zitstelle AS fundstelle_zitstelle,
        g.gii_slug AS gii_slug,
        g.status AS gesetz_status,
-       (CASE WHEN EXISTS(SELECT 1 FROM lobby_gesetze lg WHERE lg.gesetz_id = g.id) THEN 1 ELSE 0 END) AS has_lobby,
+       (CASE WHEN ${HAS_LOBBY_SQL} THEN 1 ELSE 0 END) AS has_lobby,
        g.titel_offiziell AS titel_offiziell,
        a.datum,
        a.zusammenfassung,
@@ -28,10 +32,10 @@ router.get("/gesetze", asyncHandler(async (req, res) => {
        a.bgbl_referenz,
        a.poll_id
      FROM aenderungen a
-     INNER JOIN gesetze g ON g.id = a.gesetz_id
-     ORDER BY (g.titel_offiziell IS NULL) ASC, a.datum DESC, a.id DESC`
-  );
-  const out = rows.map((r) => ({
+     INNER JOIN gesetze g ON g.id = a.gesetz_id`;
+
+function mapListRow(r) {
+  return {
     id: r.id,
     kuerzel: r.kuerzel,
     name: r.name,
@@ -49,8 +53,117 @@ router.get("/gesetze", asyncHandler(async (req, res) => {
     kontext: r.kontext,
     bgbl_referenz: r.bgbl_referenz,
     poll_id: r.poll_id,
-  }));
-  res.json(out);
+  };
+}
+
+/**
+ * Rechtsgebiet aus dem Kuerzel (Heuristik, frueher im Dashboard): Kuerzel
+ * normalisiert auf A-Z/0-9, feste Listen plus SGB-Praefix, alles andere ist
+ * "bundes". Die Werte entsprechen dem Filter-Dropdown der Gesetze-Seite.
+ */
+const KUERZEL_NORM_SQL = "REGEXP_REPLACE(UPPER(g.kuerzel), '[^A-Z0-9]', '')";
+const BEREICH_KUERZEL = {
+  zivil: ["BGB", "ZPO", "HGB", "INSO", "FAMFG", "WEG"],
+  straf: ["STGB", "STPO", "JGG", "BTMG"],
+  verfassung: ["GG", "BVERFGG"],
+  steuer_arbeit: ["ESTG", "AO", "ARBGG", "BETRVG"],
+};
+
+function bereichWhere(bereich) {
+  if (bereich === "sozial") {
+    return { sql: `${KUERZEL_NORM_SQL} LIKE 'SGB%'`, params: [] };
+  }
+  if (bereich === "bundes") {
+    const alle = Object.values(BEREICH_KUERZEL).flat();
+    return {
+      sql: `NOT (${KUERZEL_NORM_SQL} LIKE 'SGB%' OR ${KUERZEL_NORM_SQL} IN (${alle.map(() => "?").join(",")}))`,
+      params: alle,
+    };
+  }
+  if (!Object.hasOwn(BEREICH_KUERZEL, bereich)) return null;
+  const liste = BEREICH_KUERZEL[bereich];
+  return {
+    sql: `${KUERZEL_NORM_SQL} IN (${liste.map(() => "?").join(",")})`,
+    params: liste,
+  };
+}
+
+const FILTER_SQL = {
+  mit_lobby: HAS_LOBBY_SQL,
+  klartitel: "TRIM(g.titel_offiziell) <> ''",
+  mit_zusammenfassung: "TRIM(a.zusammenfassung) <> ''",
+};
+
+// Nachrangig immer die Reihenfolge der Gesamtliste, damit Gleichstaende
+// stabil bleiben wie bisher bei der Sortierung im Browser.
+const SORT_SQL = {
+  new: "a.datum DESC, (g.titel_offiziell IS NULL) ASC, a.id DESC",
+  old: "a.datum ASC, (g.titel_offiziell IS NULL) ASC, a.id DESC",
+  az: `${TITEL_SQL} ASC, (g.titel_offiziell IS NULL) ASC, a.datum DESC, a.id DESC`,
+};
+
+/** LIKE-Platzhalter im Suchbegriff wörtlich nehmen */
+function escapeLike(s) {
+  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
+}
+
+/** Liste: kein diff (kann sehr groß sein) */
+router.get("/gesetze", asyncHandler(async (req, res) => {
+  const [rows] = await getPool().query(
+    `${LIST_SELECT}
+     ORDER BY (g.titel_offiziell IS NULL) ASC, a.datum DESC, a.id DESC`
+  );
+  res.json(rows.map(mapListRow));
+}));
+
+/**
+ * Seitenweise Liste mit Suche, Filter und Sortierung in SQL. Die Gesamtliste
+ * oben ist rund 10 MB groß; das Dashboard lädt hierüber nur die sichtbare Seite.
+ * Query: limit, offset, search, bereich, filter, sort (new|old|az).
+ */
+router.get("/gesetze/liste", asyncHandler(async (req, res) => {
+  const { limit, offset } = parsePagination(req.query, { defLimit: 20, maxLimit: 100 });
+  const search = String(req.query.search ?? "").trim();
+  const bereich = String(req.query.bereich ?? "");
+  const filter = String(req.query.filter ?? "");
+  const sort = String(req.query.sort ?? "");
+  const orderSql = Object.hasOwn(SORT_SQL, sort) ? SORT_SQL[sort] : SORT_SQL.new;
+
+  const where = [];
+  const params = [];
+  const b = bereichWhere(bereich);
+  if (b) {
+    where.push(b.sql);
+    params.push(...b.params);
+  }
+  if (Object.hasOwn(FILTER_SQL, filter)) where.push(FILTER_SQL[filter]);
+  if (search) {
+    const s = `%${escapeLike(search)}%`;
+    where.push(
+      `(g.kuerzel LIKE ? OR ${TITEL_SQL} LIKE ? OR a.zusammenfassung LIKE ? OR g.amtliche_abkuerzung LIKE ?)`
+    );
+    params.push(s, s, s, s);
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const pool = getPool();
+  const [[[{ total }]], [rows]] = await Promise.all([
+    pool.query(
+      `SELECT COUNT(*) AS total
+       FROM aenderungen a
+       INNER JOIN gesetze g ON g.id = a.gesetz_id
+       ${whereSql}`,
+      params
+    ),
+    pool.query(
+      `${LIST_SELECT}
+       ${whereSql}
+       ORDER BY ${orderSql}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    ),
+  ]);
+  res.json({ total: Number(total) || 0, limit, offset, items: rows.map(mapListRow) });
 }));
 
 /** Statistik Gesetze / Änderungen (vor :id registrieren) */
