@@ -185,6 +185,8 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 06:55 | `match_urteile_gesetze.py` | Verknüpfung Urteile ↔ `gesetze` |
 | 07:00 | `summarize_gesetze_resilient.py` | Groq-Zusammenfassungen für Änderungen (Retry + Backoff, per-Row-Commit) |
 | 07:10 | `summarize_urteile.py` | Groq-Zusammenfassungen Urteile |
+| alle 6 h (:17) | `fetch_versammlungen_berlin.py` | Angezeigte Versammlungen Polizei Berlin → Rohdaten-Archiv `versammlungen_rohdaten` + `versammlungen` (Fragment: `config/versammlungen.cron.fragment`) |
+| 06:45, 18:45 | `classify_versammlungen.py` | Themenkategorie für `versammlungen` (Claude CLI, max. 5 Aufrufe) |
 | So 03:00 | `weekly_resummarize.sh` | Weekly Resummarize (Claude CLI, bilingual, Qualitätskorrektur) |
 | 03:30 | `backup_gesetze_db.sh` | Tägliches `mysqldump`-Backup `respublica_gesetze` nach `/root/backups/gesetze/` (7 Tage Retention; `trade_flows_v2` sonntags separat, 28 Tage) |
 | */5 | `pm2 jlist` | Schreibt `/root/apps/gesetze/data/pm2-status.json` |
@@ -225,6 +227,8 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
 | `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |
+| `fetch_versammlungen_berlin.py` | Demonstrations-Tracker: Liste der Polizei Berlin archivieren (gzip, nur bei Änderung) und nach `versammlungen` upserten, Status `vergangen`/`vor_termin_entfernt` nachführen; `--rebuild` baut alles aus dem Archiv neu |
+| `classify_versammlungen.py` | Themenkategorie für Versammlungen per Claude CLI (Batches à 120, max. 5 Aufrufe/Lauf) |
 | `fetch_eu_urteile.py` | EU-Gerichte EuGH/EuG per SPARQL + Fallback |
 | `fetch_urteile.py` | RSS rechtsprechung-im-internet → `urteile` |
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |

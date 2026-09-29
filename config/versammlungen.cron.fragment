@@ -1,0 +1,9 @@
+# Versammlungen Berlin (Demonstrations-Tracker, siehe migrations/016_versammlungen.sql)
+# Installation: Kopie nach /etc/cron.d/respublica-versammlungen und systemctl restart cron
+#
+# Die Polizei aktualisiert die Liste zweimal taeglich. Abgerufen wird alle 6 Stunden:
+# Rohdaten werden nur gespeichert, wenn sich der Inhalt geaendert hat, und
+# jeder verpasste Abruf ist ein verlorener Tag in der Zeitreihe.
+17 */6 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_versammlungen_berlin.py --quiet >> /root/apps/gesetze/logs/cron.log 2>&1
+# Themenklassifikation per Claude CLI (max. 5 Aufrufe pro Lauf), nach dem Morgen- und Abendabruf
+45 6,18 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/classify_versammlungen.py >> /root/apps/gesetze/logs/cron.log 2>&1

@@ -583,6 +583,61 @@ CREATE TABLE `world_indicators` (
   KEY `idx_region` (`region`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1098274 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+-- Versammlungen (migrations/016_versammlungen.sql)
+CREATE TABLE IF NOT EXISTS versammlungen_rohdaten (
+  id          INT          NOT NULL AUTO_INCREMENT,
+  quelle      VARCHAR(32)  NOT NULL,
+  abgerufen   DATETIME     NOT NULL,
+  sha256      CHAR(64)     NOT NULL,
+  anzahl      INT          NULL,
+  bytes       INT          NOT NULL,
+  inhalt_gz   MEDIUMBLOB   NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_quelle_sha (quelle, sha256),
+  INDEX idx_quelle_abgerufen (quelle, abgerufen)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS versammlungen (
+  id                 INT          NOT NULL AUTO_INCREMENT,
+  quelle             VARCHAR(32)  NOT NULL,
+  quelle_id          VARCHAR(64)  NOT NULL,
+  land               CHAR(2)      NOT NULL,
+  stadt              VARCHAR(100) NOT NULL,
+  datum              DATE         NOT NULL,
+  von                TIME         NULL,
+  bis                TIME         NULL,
+  thema              TEXT         NULL,
+  plz                VARCHAR(10)  NULL,
+  ort                VARCHAR(500) NULL,
+  aufzugsstrecke     TEXT         NULL,
+  typ                ENUM('kundgebung','aufzug') NOT NULL DEFAULT 'kundgebung',
+  kategorie          VARCHAR(32)  NULL,
+  status             ENUM('angezeigt','vergangen','vor_termin_entfernt')
+                     NOT NULL DEFAULT 'angezeigt',
+  erstmals_gesehen   DATETIME     NOT NULL,
+  zuletzt_gesehen    DATETIME     NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_quelle_id (quelle, quelle_id),
+  INDEX idx_datum (datum),
+  INDEX idx_land_datum (land, datum),
+  INDEX idx_kategorie_datum (kategorie, datum),
+  INDEX idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS versammlung_zahlen (
+  id              INT          NOT NULL AUTO_INCREMENT,
+  versammlung_id  INT          NOT NULL,
+  quelle_typ      ENUM('veranstalter','polizei','presse','schaetzung') NOT NULL,
+  wert            INT          NOT NULL,
+  wert_bis        INT          NULL,
+  quelle_name     VARCHAR(255) NULL,
+  quelle_url      VARCHAR(500) NULL,
+  genannt_am      DATETIME     NULL,
+  PRIMARY KEY (id),
+  INDEX idx_versammlung (versammlung_id),
+  CONSTRAINT fk_vz_versammlung FOREIGN KEY (versammlung_id)
+    REFERENCES versammlungen(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
