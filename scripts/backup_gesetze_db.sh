@@ -26,5 +26,9 @@ fi
 find "$BACKUP_DIR" -name "gesetze_*.sql.gz" -mtime +7 -delete
 find "$BACKUP_DIR" -name "trade_flows_*.sql.gz" -mtime +28 -delete
 
+# Erfolgszeile ins Log (stdout geht per Crontab nach logs/backup.log), damit der
+# letzte Lauf auch ohne Healthchecks nachvollziehbar ist
+echo "$(date '+%F %T') Backup ok: gesetze_$DATE.sql.gz ($(du -h "$BACKUP_DIR/gesetze_$DATE.sql.gz" | cut -f1))"
+
 # Erfolg an Healthchecks.io melden (no-op falls HC_PING_BACKUP nicht gesetzt)
 [ -n "$HC_PING_BACKUP" ] && curl -fsS --max-time 10 "$HC_PING_BACKUP" >/dev/null 2>&1 || true
