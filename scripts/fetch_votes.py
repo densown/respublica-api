@@ -17,11 +17,16 @@ from typing import Any
 import mysql.connector
 from dotenv import load_dotenv
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from lib.log import acquire_lock, release_lock
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = ROOT / "logs" / "fetch_votes.log"
 BASE_URL = "https://www.abgeordnetenwatch.de/api/v2/polls"
 USER_AGENT = "ResPublicaGesetze/1.0 (+https://respublica.media)"
 ALLOWED_VOTES = {"yes", "no", "abstain", "no_show"}
+LOCK_NAME = "fetch_votes"
 
 
 CREATE_TABLE_SQL = """
@@ -100,10 +105,20 @@ def fetch_json(url: str) -> dict[str, Any]:
 def get_poll_ids(
     conn: mysql.connector.MySQLConnection,
     limit: int | None,
+    only_missing: bool = True,
 ) -> list[int]:
     cur = conn.cursor()
     try:
-        sql = "SELECT DISTINCT poll_id FROM abstimmungen WHERE poll_id IS NOT NULL ORDER BY poll_id"
+        if only_missing:
+            # Nur Abstimmungen ohne Einzelstimmen, sonst laedt jeder Lauf alle neu
+            sql = (
+                "SELECT DISTINCT a.poll_id FROM abstimmungen a "
+                "LEFT JOIN votes v ON v.poll_id = a.poll_id "
+                "WHERE a.poll_id IS NOT NULL AND v.poll_id IS NULL "
+                "ORDER BY a.poll_id"
+            )
+        else:
+            sql = "SELECT DISTINCT poll_id FROM abstimmungen WHERE poll_id IS NOT NULL ORDER BY poll_id"
         if limit is not None:
             sql += " LIMIT %s"
             cur.execute(sql, (limit,))
@@ -206,6 +221,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Nur die ersten N poll_ids aus abstimmungen verarbeiten.",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Alle poll_ids neu laden statt nur die ohne Einzelstimmen.",
+    )
     return parser.parse_args()
 
 
@@ -216,6 +236,9 @@ def main() -> int:
 
     if args.limit is not None and args.limit <= 0:
         logging.error("--limit muss > 0 sein.")
+        return 1
+
+    if not acquire_lock(LOCK_NAME, logging.getLogger()):
         return 1
 
     try:
@@ -229,7 +252,7 @@ def main() -> int:
             finally:
                 cur.close()
 
-            poll_ids = get_poll_ids(init_conn, args.limit)
+            poll_ids = get_poll_ids(init_conn, args.limit, only_missing=not args.all)
         finally:
             init_conn.close()
 
@@ -279,6 +302,8 @@ def main() -> int:
     except Exception as exc:  # pragma: no cover
         logging.exception("Abbruch: %s", exc)
         return 1
+    finally:
+        release_lock(LOCK_NAME)
 
 
 if __name__ == "__main__":

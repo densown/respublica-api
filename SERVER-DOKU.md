@@ -175,6 +175,7 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
 | 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen` |
+| 06:12 | `fetch_votes.py` | Einzelstimmen nur für Abstimmungen ohne Einträge in `votes` (`--all` lädt alle neu; Fragment: `config/fetch-votes.cron.fragment`) |
 | 06:15 | `fetch_bgbl.py` | BGBl-Aktualitätendienst → `bgbl_referenz` an `aenderungen` |
 | 06:20 | `fetch_lobbyregister.py` | Lobbyregister-Import (`sucheDetailJson`) → `lobbyregister` |
 | 06:25 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |

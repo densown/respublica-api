@@ -1,0 +1,4 @@
+# Taeglich 06:12 UTC: Einzelstimmen zu neuen namentlichen Abstimmungen nachladen.
+# Laeuft nach fetch_abstimmungen.py (06:10) und laedt nur poll_ids ohne Eintraege in votes.
+# Installation: Kopie nach /etc/cron.d/fetch-votes und systemctl restart cron
+12 6 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_votes.py >> /root/apps/gesetze/logs/cron.log 2>&1
