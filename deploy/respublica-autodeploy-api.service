@@ -1,0 +1,12 @@
+[Unit]
+Description=Res.Publica API: main deployen, wenn CI gruen
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/root
+# PATH muss node, npm und pm2 enthalten (bei nvm den Pfad dort eintragen).
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=-/etc/respublica/autodeploy.env
+ExecStart=/root/apps/gesetze/deploy/autodeploy.sh

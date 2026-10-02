@@ -1,0 +1,10 @@
+[Unit]
+Description=Res.Publica API alle 5 Minuten auf neuen gruenen Stand pruefen
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+
+[Install]
+WantedBy=timers.target

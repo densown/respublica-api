@@ -762,3 +762,139 @@ ON DUPLICATE KEY UPDATE von = VALUES(von);
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
+
+-- Nachgetragen 2026-10-02: Tabellen aus den Migrationen 012, 013, 014 (wahltermine) und 015.
+-- Erzeugt mit mysqldump --no-data --compact nach Anwenden der Migrationen auf dieses Schema.
+SET FOREIGN_KEY_CHECKS=0;
+/*M!999999\- enable the sandbox mode */ 
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `parteien` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `kuerzel` varchar(32) NOT NULL,
+  `name` varchar(255) NOT NULL,
+  `farbe_hex` char(7) DEFAULT NULL,
+  `sortierung` smallint(6) NOT NULL DEFAULT 100,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `kuerzel` (`kuerzel`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `parteien_dawum` (
+  `dawum_id` int(11) NOT NULL,
+  `partei_id` int(11) NOT NULL,
+  `dawum_name` varchar(128) DEFAULT NULL,
+  PRIMARY KEY (`dawum_id`),
+  KEY `idx_partei` (`partei_id`),
+  CONSTRAINT `fk_pd_partei` FOREIGN KEY (`partei_id`) REFERENCES `parteien` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `wahltermine` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `slug` varchar(64) NOT NULL,
+  `ebene` enum('bund','land','eu') NOT NULL,
+  `land` varchar(64) DEFAULT NULL,
+  `name_de` varchar(255) NOT NULL,
+  `name_en` varchar(255) NOT NULL,
+  `datum` date DEFAULT NULL,
+  `dawum_parliament_id` int(11) DEFAULT NULL,
+  `aw_parliament_period_id` int(11) DEFAULT NULL,
+  `status` enum('kommend','laufend','abgeschlossen') NOT NULL DEFAULT 'kommend',
+  `wahlbeteiligung` decimal(5,2) DEFAULT NULL,
+  `sitze_gesamt` smallint(6) DEFAULT NULL,
+  `ergebnis_status` enum('vorlaeufig','endgueltig') DEFAULT NULL,
+  `ergebnis_stand` datetime DEFAULT NULL,
+  `ergebnis_quelle` varchar(255) DEFAULT NULL,
+  `ergebnis_quelle_url` varchar(500) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `slug` (`slug`),
+  KEY `idx_datum` (`datum`),
+  KEY `idx_status` (`status`),
+  KEY `idx_dawum_parl` (`dawum_parliament_id`),
+  KEY `idx_aw_periode` (`aw_parliament_period_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `umfragen` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `dawum_survey_id` int(11) NOT NULL,
+  `wahltermin_id` int(11) NOT NULL,
+  `institut` varchar(128) NOT NULL,
+  `auftraggeber` varchar(128) DEFAULT NULL,
+  `erhebung_start` date DEFAULT NULL,
+  `erhebung_ende` date DEFAULT NULL,
+  `veroeffentlicht` date NOT NULL,
+  `befragte` int(11) DEFAULT NULL,
+  `methode` varchar(64) DEFAULT NULL,
+  `aktualisiert_am` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `dawum_survey_id` (`dawum_survey_id`),
+  KEY `idx_wahl_datum` (`wahltermin_id`,`veroeffentlicht`),
+  CONSTRAINT `fk_umfrage_wahltermin` FOREIGN KEY (`wahltermin_id`) REFERENCES `wahltermine` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `umfrage_werte` (
+  `umfrage_id` int(11) NOT NULL,
+  `partei_id` int(11) NOT NULL,
+  `prozent` decimal(4,1) NOT NULL,
+  PRIMARY KEY (`umfrage_id`,`partei_id`),
+  KEY `idx_partei` (`partei_id`),
+  CONSTRAINT `fk_uw_partei` FOREIGN KEY (`partei_id`) REFERENCES `parteien` (`id`),
+  CONSTRAINT `fk_uw_umfrage` FOREIGN KEY (`umfrage_id`) REFERENCES `umfragen` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `themenfelder` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `slug` varchar(64) NOT NULL,
+  `name_de` varchar(255) NOT NULL,
+  `name_en` varchar(255) NOT NULL,
+  `parent_id` int(11) DEFAULT NULL,
+  `aw_topic_id` int(11) DEFAULT NULL,
+  `fuer_positionen` tinyint(1) NOT NULL DEFAULT 1,
+  `sortierung` smallint(6) NOT NULL DEFAULT 100,
+  `created_at` timestamp NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `slug` (`slug`),
+  UNIQUE KEY `aw_topic_id` (`aw_topic_id`),
+  KEY `idx_parent` (`parent_id`),
+  KEY `idx_positionen` (`fuer_positionen`),
+  CONSTRAINT `fk_themenfeld_parent` FOREIGN KEY (`parent_id`) REFERENCES `themenfelder` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `poll_themenfelder` (
+  `poll_id` int(11) NOT NULL,
+  `themenfeld_id` int(11) NOT NULL,
+  PRIMARY KEY (`poll_id`,`themenfeld_id`),
+  KEY `idx_themenfeld` (`themenfeld_id`),
+  CONSTRAINT `fk_pt_themenfeld` FOREIGN KEY (`themenfeld_id`) REFERENCES `themenfelder` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `wahl_ergebnisse` (
+  `wahltermin_id` int(11) NOT NULL,
+  `partei_id` int(11) NOT NULL,
+  `prozent` decimal(5,2) NOT NULL,
+  `stimmen` int(11) DEFAULT NULL,
+  `sitze` smallint(6) DEFAULT NULL,
+  `sitze_direkt` smallint(6) DEFAULT NULL,
+  `sitze_liste` smallint(6) DEFAULT NULL,
+  PRIMARY KEY (`wahltermin_id`,`partei_id`),
+  KEY `idx_partei` (`partei_id`),
+  CONSTRAINT `fk_we_partei` FOREIGN KEY (`partei_id`) REFERENCES `parteien` (`id`),
+  CONSTRAINT `fk_we_wahltermin` FOREIGN KEY (`wahltermin_id`) REFERENCES `wahltermine` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+SET FOREIGN_KEY_CHECKS=1;
