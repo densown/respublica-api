@@ -11,7 +11,7 @@ from lib.db import get_db
 from lib.env import load_env
 from lib.groq import GroqError, chat_completion
 
-GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL = "openai/gpt-oss-20b"
 PAUSE_SEC = 10
 
 

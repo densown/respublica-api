@@ -31,8 +31,9 @@ def summarize_titel(titel_de):
                 'Content-Type': 'application/json',
             },
             json={
-                'model': 'llama-3.1-8b-instant',
-                'max_tokens': 400,
+                'model': 'openai/gpt-oss-20b',
+                'max_tokens': 1400,  # inkl. Denk-Tokens von gpt-oss
+                'reasoning_effort': 'low',
                 'messages': [{'role': 'user', 'content': prompt}],
             },
             timeout=60,

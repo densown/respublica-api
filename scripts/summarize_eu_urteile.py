@@ -16,7 +16,7 @@ load_dotenv('/root/apps/gesetze/.env')
 
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-MODEL = 'llama-3.1-8b-instant'
+MODEL = 'openai/gpt-oss-20b'
 
 PROMPT_SUMMARY_DE = """Du bist ein juristischer Experte. Fasse das folgende EU-Gerichtsurteil in exakt 2-3 Sätzen auf Deutsch zusammen. Verwende NUR die unten angegebenen Informationen. Sage NIEMALS 'Ich konnte nichts finden' oder 'Ich habe keine Informationen' oder 'Leider'. Wenn der Betreff auf Französisch ist, übersetze ihn ins Deutsche.
 
@@ -83,7 +83,8 @@ def groq_chat(prompt):
             },
             json={
                 'model': MODEL,
-                'max_tokens': 500,
+                'max_tokens': 1500,  # inkl. Denk-Tokens von gpt-oss
+                'reasoning_effort': 'low',
                 'messages': [{'role': 'user', 'content': prompt}],
             },
             timeout=60,
