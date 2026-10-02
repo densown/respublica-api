@@ -583,6 +583,14 @@ CREATE TABLE `world_indicators` (
   KEY `idx_region` (`region`)
 ) ENGINE=InnoDB AUTO_INCREMENT=1098274 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+-- Abgeordnete (migrations/014_kandidaturen.sql, nur der abgeordnete-Teil;
+-- wahltermine ist im Testschema nicht enthalten)
+ALTER TABLE abgeordnete
+  ADD COLUMN parliament_period INT NULL AFTER politiker_id,
+  ADD COLUMN typ ENUM('mandat','kandidatur') NOT NULL DEFAULT 'mandat' AFTER parliament_period,
+  ADD COLUMN partei VARCHAR(96) NULL AFTER fraktion,
+  ADD INDEX idx_periode_typ (parliament_period, typ);
+
 -- Versammlungen (migrations/016_versammlungen.sql)
 CREATE TABLE IF NOT EXISTS versammlungen_rohdaten (
   id          INT          NOT NULL AUTO_INCREMENT,
@@ -638,6 +646,112 @@ CREATE TABLE IF NOT EXISTS versammlung_zahlen (
   CONSTRAINT fk_vz_versammlung FOREIGN KEY (versammlung_id)
     REFERENCES versammlungen(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Versammlungen (017_versammlungen_serien.sql)
+-- 017: Versammlungen, Parser v2 (Serien, Themen-Cache, Mehrquellenfaehigkeit)
+--
+-- Befund aus dem ersten echten Abruf (29.09.2026): Berlin listet Serien
+-- (Dauermahnwachen, woechentliche Kundgebungen) als eine Zeile PRO TERMIN,
+-- das Thema endet dann auf "(vom 01.08. bis 01.10.2026 - taeglich)". Rund
+-- drei Viertel der Zeilen gehoeren zu Serien. Ohne Serien-Modell zaehlt eine
+-- einzige taegliche Mahnwache 365-mal.
+--
+-- Loesung: jede Zeile bleibt ein Versammlungstag, `serie_id` fasst die Tage
+-- einer Serie zusammen. Gezaehlt werden getrennt
+--   versammlungstage  Zeilen
+--   versammlungen     verschiedene Serien + Einzeltermine
+--
+-- `serie_id` haengt bewusst NICHT vom Serienende ab: wird eine Serie
+-- verlaengert, aendert Berlin das Suffix, die Serie bleibt aber dieselbe.
+--
+-- Kategorien haengen am Thema, nicht an der Zeile (`versammlung_themen`):
+-- eine taegliche Mahnwache wird einmal klassifiziert, und ein --rebuild
+-- verliert keine Kategorien mehr.
+--
+-- `thema` enthaelt ab jetzt das bereinigte Thema ohne Serien-Suffix
+-- (Silbentrennung, ",," usw. korrigiert). Der Originaltext bleibt im
+-- Rohdaten-Archiv.
+--
+-- Nach dem Anwenden: fetch_versammlungen_berlin.py --rebuild (die quelle_id
+-- wird jetzt aus dem Thema OHNE Serien-Suffix gebildet).
+
+ALTER TABLE versammlungen
+  ADD COLUMN thema_hash      CHAR(40)     NULL AFTER thema,
+  ADD COLUMN ganztaegig      TINYINT(1)   NOT NULL DEFAULT 0 AFTER bis,
+  ADD COLUMN serie_id        CHAR(40)     NULL AFTER typ,
+  ADD COLUMN serie_von       DATE         NULL AFTER serie_id,
+  ADD COLUMN serie_bis       DATE         NULL AFTER serie_von,
+  ADD COLUMN serie_rhythmus  VARCHAR(100) NULL AFTER serie_bis,
+  -- liste:   aus einer vollstaendigen amtlichen Liste (Berlin, Dresden, ...)
+  -- bericht: nur aus einer Polizei-/Pressemeldung bekannt (selektiv)
+  -- Beides wird nie zusammengezaehlt.
+  ADD COLUMN erfassung       ENUM('liste','bericht') NOT NULL DEFAULT 'liste' AFTER serie_rhythmus,
+  -- stattgefunden: nur wenn ein Bericht es belegt (ab M3)
+  MODIFY COLUMN status ENUM('angezeigt','vergangen','vor_termin_entfernt','stattgefunden')
+                       NOT NULL DEFAULT 'angezeigt',
+  ADD INDEX idx_thema_hash (thema_hash),
+  ADD INDEX idx_serie (serie_id),
+  ADD INDEX idx_erfassung_datum (erfassung, datum);
+
+-- Kategorie-Cache: ein Eintrag pro verschiedenem (bereinigtem) Thema.
+-- `thema_hash` = sha1 des normalisierten Themas ohne Serien-Suffix.
+CREATE TABLE IF NOT EXISTS versammlung_themen (
+  thema_hash        CHAR(40)    NOT NULL,
+  thema             TEXT        NOT NULL,
+  kategorie         VARCHAR(32) NOT NULL,
+  klassifiziert_am  DATETIME    NOT NULL,
+  PRIMARY KEY (thema_hash),
+  INDEX idx_kategorie (kategorie)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Versammlungen (018_versammlungen_altdaten.sql)
+-- 018: Versammlungen, historische Daten (Import vorhandener Datensaetze)
+--
+-- Vor dem eigenen Archiv (ab 29.09.2026) gibt es fuer Berlin bereits
+-- veroeffentlichte Einzeldaten aus IFG-Anfragen:
+--   2018-2022  The German Protest Registrations Dataset (David Pomerenke,
+--              Zenodo 10.5281/zenodo.10094245, CC BY-SA 4.0), Berlin-Teil aus
+--              FragDenStaat-Anfragen; Datum, Thema, Teilnehmende angemeldet
+--              und tatsaechlich, aber kein Ort, keine Uhrzeit, kein Typ
+--   2023-04/2024  FragDenStaat-Anfrage "Versammlungen 2023 und 2024" (Polizei
+--              Berlin, XLSX) mit Ort, Uhrzeit, Aufzugsstrecke und Teilnehmenden
+-- Importiert von scripts/import_versammlungen_altdaten.py, je als eigene
+-- `quelle`, nie mit dem laufenden Archiv vermischt.
+
+-- Typ ist in manchen Quellen unbekannt (Pomerenke: kein Ort, keine Strecke).
+-- NULL statt 'kundgebung', sonst waeren Aufzuege systematisch untergezaehlt.
+ALTER TABLE versammlungen
+  MODIFY COLUMN typ ENUM('kundgebung','aufzug') NULL DEFAULT 'kundgebung';
+
+-- 'angemeldet': die bei der Anzeige erwartete Teilnehmendenzahl. Eine
+-- Erwartung der Anmeldenden VOR der Versammlung, nicht dasselbe wie eine
+-- Veranstalterangabe danach ('veranstalter').
+ALTER TABLE versammlung_zahlen
+  MODIFY COLUMN quelle_typ ENUM('angemeldet','veranstalter','polizei','presse','schaetzung') NOT NULL;
+
+-- Abgedeckte Zeitraeume je Quelle. Ohne diese Tabelle waere eine Luecke im
+-- Bestand (Berlin Mai 2024 bis September 2026) nicht von "keine
+-- Versammlungen" zu unterscheiden. `bis` NULL = laufend.
+CREATE TABLE IF NOT EXISTS versammlungen_abdeckung (
+  quelle        VARCHAR(32)  NOT NULL,
+  land          CHAR(2)      NOT NULL,
+  stadt         VARCHAR(100) NOT NULL,
+  von           DATE         NOT NULL,
+  bis           DATE         NULL,
+  name          VARCHAR(255) NOT NULL,
+  url           VARCHAR(500) NULL,
+  lizenz        VARCHAR(255) NULL,
+  hinweis       TEXT         NULL,
+  PRIMARY KEY (quelle, stadt)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO versammlungen_abdeckung (quelle, land, stadt, von, bis, name, url, lizenz, hinweis)
+VALUES ('polizei_berlin', 'BE', 'Berlin', '2026-09-29', NULL,
+        'Polizei Berlin, Versammlungsbehörde (laufendes Archiv)',
+        'https://www.berlin.de/polizei/service/versammlungsbehoerde/versammlungen-aufzuege/',
+        'eingeschränkte Nutzung laut daten.berlin.de, Anfrage läuft',
+        'Täglich gesicherte Liste angezeigter Versammlungen nach § 12 VersFG BE.')
+ON DUPLICATE KEY UPDATE von = VALUES(von);
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
 /*!40101 SET SQL_MODE=@OLD_SQL_MODE */;
