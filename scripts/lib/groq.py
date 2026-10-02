@@ -65,11 +65,15 @@ def chat_completion(
         raise GroqError("GROQ_API_KEY fehlt in .env")
 
     body: dict[str, Any] = {
-        "model": model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "model": model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"),
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    if body["model"].startswith("openai/gpt-oss"):
+        # Reasoning-Modell: Denk-Tokens zaehlen in max_tokens mit, sonst bleibt content leer
+        body["reasoning_effort"] = "low"
+        body["max_tokens"] = max_tokens + 1024
 
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES):

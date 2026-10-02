@@ -21,7 +21,7 @@ from lib.env import load_env
 from lib.groq import GroqError, chat_completion
 from lib.log import acquire_lock, install_signal_handlers, release_lock
 
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "openai/gpt-oss-120b"
 DIFF_PREVIEW_LEN = 2000
 PAUSE_SEC = 8.0
 QUOTA_ABORT_AFTER = 10  # Abbruch nach so vielen Quota-Fehlern in Folge
@@ -42,6 +42,9 @@ def build_user_content(kuerzel: str, diff_text: str) -> str:
         "Du bist ein Journalist der komplexe Gesetzesaenderungen fuer normale Buerger erklaert.\n"
         "Fasse diese Gesetzesaenderung in 2-3 Saetzen zusammen. Erklaere was sich geaendert hat\n"
         "und was das fuer den Alltag der Buerger bedeutet. Sei konkret und verstaendlich.\n"
+        "Antworte nur mit 2-3 Saetzen Fliesstext, hoechstens 80 Woerter, ohne Ueberschriften,\n"
+        "Markdown oder Aufzaehlungen. Schreibe nur, was aus dem Diff hervorgeht, und erfinde\n"
+        "keine Daten oder Folgen. Ist die Aenderung rein redaktionell, sag das in einem Satz.\n"
         f"Gesetz: {kuerzel}\n"
         "Aenderung (git diff Format):\n"
         f"{snippet}"
