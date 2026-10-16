@@ -39,6 +39,23 @@ from fetch_urteile import parse_title
             "BPatG",
             ("35. Senat", "Beschluss", date(2026, 8, 12), "35 W (pat) 4/24"),
         ),
+        # Ort vor dem Senat, wie im BPatG-Feed vom Oktober 2026
+        (
+            "BPatG München 6. Senat, Urteil vom 09.07.2026, 6 Ni 10/25",
+            "BPatG",
+            ("6. Senat", "Urteil", date(2026, 7, 9), "6 Ni 10/25"),
+        ),
+        # Senatsnamen ohne Nummer bleiben, wie sie sind
+        (
+            "BGH Großer Senat für Zivilsachen, Beschluss vom 01.09.2026, GSZ 1/25",
+            "BGH",
+            ("Großer Senat für Zivilsachen", "Beschluss", date(2026, 9, 1), "GSZ 1/25"),
+        ),
+        (
+            "BVerwG 2. Wehrdienstsenat, Beschluss vom 13.08.2026, 2 WDB 3.26",
+            "BVerwG",
+            ("2. Wehrdienstsenat", "Beschluss", date(2026, 8, 13), "2 WDB 3.26"),
+        ),
     ],
 )
 def test_parse_title(title, gericht, erwartet):

@@ -40,7 +40,8 @@ def parse_title(title, gericht):
             datum = datetime.strptime(m.group(3), '%d.%m.%Y').date()
         except ValueError:
             return None, None, None, None
-        senat = m.group(1).strip()[:100]
+        # "BPatG München 6. Senat": Ort gehoert nicht zum Senat (im XML steht er in gerort)
+        senat = re.sub(r'^[A-ZÄÖÜ][a-zäöüß]+\s+(?=\d)', '', m.group(1).strip())[:100]
         typ   = m.group(2).strip()[:100]
         az    = m.group(4).strip()[:100]
     return senat, typ, datum, az
