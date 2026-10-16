@@ -3,6 +3,7 @@
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 
 const pinoHttp = require("pino-http");
 
@@ -56,6 +57,10 @@ app.use(
     methods: ["GET"],
   })
 );
+// Antworten komprimieren. /api/gesetze ist roh ~10 MB, gzip ~2 MB; ohne das
+// haengt die Gesetzgebungsseite auf normalen Leitungen lange im Spinner.
+// nginx komprimiert fuer api.respublica.media nicht, daher hier in Express.
+app.use(compression());
 app.use(express.json());
 
 // Health-Check fuer PM2/Monitoring (pruegt DB-Erreichbarkeit).
