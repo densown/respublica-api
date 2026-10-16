@@ -24,13 +24,25 @@ FEEDS = {
 
 def parse_title(title, gericht):
     # "BGH 6a. Zivilsenat, Urteil vom 17.03.2026, VIa ZR 110/23"
+    # "BVerfG 2. Senat 1. Kammer, Ablehnung einstweilige Anordnung vom 01.10.2026, 2 BvR 1/26"
+    # Seit Ende Maerz 2026 beginnt der Titel direkt mit dem Gerichtskuerzel. Der
+    # alte Ausdruck verlangte davor mindestens ein Zeichen und fand nichts mehr;
+    # die Urteile landeten ohne Datum, Senat, Typ und Aktenzeichen in der DB.
+    # Als Typ gilt alles zwischen Komma und "vom", nicht nur Urteil/Beschluss.
     senat, typ, datum, az = None, None, None, None
-    m = re.match(r'.+?(?:' + gericht + r')\s+(.+?),\s+(Urteil|Beschluss|Gerichtsbescheid)\s+vom\s+(\d{2}\.\d{2}\.\d{4}),\s+(.+)', title)
+    m = re.match(
+        r'^(?:.*?\s)?' + re.escape(gericht)
+        + r'\s+(.+?),\s+([^,]+?)\s+vom\s+(\d{2}\.\d{2}\.\d{4}),\s+(.+)$',
+        title.strip(),
+    )
     if m:
-        senat = m.group(1).strip()
-        typ   = m.group(2).strip()
-        datum = datetime.strptime(m.group(3), '%d.%m.%Y').date()
-        az    = m.group(4).strip()
+        try:
+            datum = datetime.strptime(m.group(3), '%d.%m.%Y').date()
+        except ValueError:
+            return None, None, None, None
+        senat = m.group(1).strip()[:100]
+        typ   = m.group(2).strip()[:100]
+        az    = m.group(4).strip()[:100]
     return senat, typ, datum, az
 
 def fetch_tenor(doc_id):
@@ -54,6 +66,7 @@ def main():
     db = get_db(autocommit=False)
     cur = db.cursor()
     neu = 0
+    nachgetragen = 0
 
     for gericht, feed_url in FEEDS.items():
         print(f'Abrufen: {gericht}')
@@ -70,14 +83,26 @@ def main():
             doc_id = item.find('guid').get_text().replace('jb-', '')
             full_doc_id = item.find('guid').get_text()
 
+            title = item.find('title').get_text()
+            senat, typ, datum, az = parse_title(title, gericht)
+
             # Schon in DB?
-            cur.execute('SELECT id FROM urteile WHERE doc_id = %s', (doc_id,))
-            if cur.fetchone():
+            cur.execute('SELECT id, datum FROM urteile WHERE doc_id = %s', (doc_id,))
+            vorhanden = cur.fetchone()
+            if vorhanden:
+                # Zeilen aus der Zeit, in der parse_title nichts fand, nachtragen
+                if vorhanden[1] is None and datum:
+                    cur.execute('''
+                        UPDATE urteile SET senat = %s, typ = %s, datum = %s, aktenzeichen = %s
+                        WHERE id = %s AND datum IS NULL
+                    ''', (senat, typ, datum, az, vorhanden[0]))
+                    db.commit()
+                    nachgetragen += 1
                 continue
 
-            title     = item.find('title').get_text()
+            if not datum:
+                print(f'  WARNUNG: Titel nicht erkannt: {title.strip()}')
             leitsatz  = item.find('description').get_text() if item.find('description') else None
-            senat, typ, datum, az = parse_title(title, gericht)
 
             # ECLI aus Link extrahieren
             link = item.find('link').get_text() if item.find('link') else ''
@@ -93,7 +118,7 @@ def main():
             db.commit()
             neu += 1
 
-    print(f'\nFertig. {neu} neue Urteile importiert.')
+    print(f'\nFertig. {neu} neue Urteile importiert, {nachgetragen} ohne Datum nachgetragen.')
     cur.close()
     db.close()
 

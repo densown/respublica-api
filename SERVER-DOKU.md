@@ -214,6 +214,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `backfill_diffs.py` | Letzte 30 Tage Git-Commits im Gesetze-Repo, Diffs nach DB backfillen |
 | `backfill_eu_betreff.py` | Betreffzeilen zu EU-Akten aus EUR-Lex-HTML nachziehen |
 | `backfill_tenors.py` | Tenor-Felder für Urteile nachziehen (BeautifulSoup) |
+| `backfill_urteile_metadaten.py` | Urteile ohne Datum, Senat, Typ, Aktenzeichen aus dem XML-ZIP je Entscheidung nachtragen (ohne `--schreiben` nur Probelauf) |
 | `bundestag_gesetze_diffs.py` | Tages-Diffs aus Git-Repo als JSON |
 | `gii_parse.py` | TOC und Norm-XML parsen (lxml) |
 | `gii_match.py` | `doknr` / Slug zu `gesetze.id` |
@@ -231,7 +232,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fetch_versammlungen_berlin.py` | Demonstrations-Tracker: Liste der Polizei Berlin archivieren (gzip, nur bei Änderung) und nach `versammlungen` upserten, Status `vergangen`/`vor_termin_entfernt` nachführen; `--rebuild` baut alles aus dem Archiv neu |
 | `classify_versammlungen.py` | Themenkategorie für Versammlungen per Claude CLI (Batches à 120, max. 5 Aufrufe/Lauf) |
 | `fetch_eu_urteile.py` | EU-Gerichte EuGH/EuG per SPARQL + Fallback |
-| `fetch_urteile.py` | RSS rechtsprechung-im-internet → `urteile` |
+| `fetch_urteile.py` | RSS rechtsprechung-im-internet → `urteile`; trägt bei Zeilen ohne Datum Senat, Typ, Datum, Aktenzeichen nach, solange sie im Feed stehen |
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |
 | `import_diffs_to_db.py` | `data/diffs/YYYY-MM-DD.json` → MariaDB |
 | `import_wahlen.py` | GERDA/Wahldaten-CSV → `wahlen` |
