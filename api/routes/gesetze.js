@@ -5,9 +5,25 @@ const router = express.Router();
 const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
+const { parsePagination } = require("../lib/validate");
 
-/** Liste: kein diff (kann sehr groß sein) */
+/**
+ * Liste: kein diff (kann sehr groß sein).
+ *
+ * Ohne `limit` kommt wie bisher die ganze Liste (rund 8.600 Zeilen, die
+ * Gesetzgebungsseite filtert selbst). Mit `limit` (1 bis 500) und `offset`
+ * nur ein Ausschnitt; die Startseite holte sonst fuer drei Eintraege 10 MB.
+ * `zusammenfassung=1` laesst Aenderungen ohne Zusammenfassung weg.
+ */
 router.get("/gesetze", asyncHandler(async (req, res) => {
+  const where = [];
+  if (req.query.zusammenfassung === "1") {
+    where.push("a.zusammenfassung IS NOT NULL AND TRIM(a.zusammenfassung) <> ''");
+  }
+  const seite = req.query.limit === undefined
+    ? null
+    : parsePagination(req.query, { defLimit: 50, maxLimit: 500 });
+
   const [rows] = await getPool().query(
     `SELECT
        a.id,
@@ -29,7 +45,10 @@ router.get("/gesetze", asyncHandler(async (req, res) => {
        a.poll_id
      FROM aenderungen a
      INNER JOIN gesetze g ON g.id = a.gesetz_id
-     ORDER BY (g.titel_offiziell IS NULL) ASC, a.datum DESC, a.id DESC`
+     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY (g.titel_offiziell IS NULL) ASC, a.datum DESC, a.id DESC
+     ${seite ? "LIMIT ? OFFSET ?" : ""}`,
+    seite ? [seite.limit, seite.offset] : []
   );
   const out = rows.map((r) => ({
     id: r.id,
