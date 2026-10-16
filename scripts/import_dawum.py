@@ -8,7 +8,9 @@ gehoert sichtbar ins Frontend, nicht ins Impressum.
 Verarbeitet werden ausschliesslich Umfragen zu Parlamenten, fuer die in
 `wahltermine.dawum_parliament_id` ein Eintrag existiert. Jede Umfrage wird dem
 naechsten Wahltermin desselben Parlaments am oder nach ihrem Veroeffentlichungs-
-datum zugeordnet; gibt es keinen, faellt sie auf den Termin mit status='kommend'.
+datum zugeordnet; gibt es keinen, faellt sie auf einen kommenden Termin ohne
+Datum (etwa die naechste Bundestagswahl). Sonst bleibt sie liegen, bis der
+naechste Termin eingetragen ist.
 
 Modi:
   --dry-run   Nichts schreiben, nur zeigen was passieren wuerde
@@ -117,12 +119,17 @@ def load_lookups(cur):
 
 
 def pick_wahltermin(kandidaten: list[dict], veroeffentlicht: date) -> int | None:
-    """Naechster Termin am/nach dem Datum, sonst der kommende, sonst keiner."""
+    """Naechster Termin am/nach dem Datum, sonst ein kommender ohne Datum, sonst keiner.
+
+    Ein Termin mit Datum vor der Umfrage kommt nie in Frage, auch wenn sein
+    Status noch 'kommend' ist: Sonst landeten Umfragen nach dem Wahltag bei der
+    gelaufenen Wahl (so geschehen bei MV und Berlin 2026).
+    """
     for row in kandidaten:
         if row["datum"] is not None and row["datum"] >= veroeffentlicht:
             return row["id"]
     for row in kandidaten:
-        if row["status"] == "kommend":
+        if row["datum"] is None and row["status"] == "kommend":
             return row["id"]
     return None
 

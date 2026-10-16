@@ -53,6 +53,45 @@ LIMIT 500
 """
 
 
+MONATE_DE = {
+    'januar': 1, 'februar': 2, 'märz': 3, 'maerz': 3, 'april': 4, 'mai': 5, 'juni': 6,
+    'juli': 7, 'august': 8, 'september': 9, 'oktober': 10, 'november': 11, 'dezember': 12,
+}
+MONATE_EN = {
+    'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11, 'december': 12,
+}
+
+
+def datum_aus_titel(titel_de, titel_en):
+    """Datum des Rechtsakts aus dem Titel ("vom 10. September 2026", "of 10 September 2026")."""
+    for titel, muster, monate in (
+        (titel_de, r'\bvom\s+(\d{1,2})\.\s*([A-Za-zÄÖÜäöü]+)\s+(\d{4})', MONATE_DE),
+        (titel_en, r'\bof\s+(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})', MONATE_EN),
+    ):
+        m = re.search(muster, titel or '')
+        if m and m.group(2).lower() in monate:
+            try:
+                return date(int(m.group(3)), monate[m.group(2).lower()], int(m.group(1))).isoformat()
+            except ValueError:
+                pass
+    return None
+
+
+def plausibles_datum(datum, titel_de, titel_en, heute=None):
+    """Datum aus Cellar; liegt es in der Zukunft, das aus dem Titel oder None.
+
+    Cellar hat vereinzelt Tippfehler im Dokumentdatum (32026R2053 steht auf
+    2029-09-10, laut Titel vom 10. September 2026). Ein Rechtsakt, der schon
+    veroeffentlicht ist, kann kein Datum in der Zukunft haben.
+    """
+    heute = (heute or date.today()).isoformat()
+    if not datum or datum <= heute:
+        return datum
+    aus_titel = datum_aus_titel(titel_de, titel_en)
+    return aus_titel if aus_titel and aus_titel <= heute else None
+
+
 def log_line(msg):
     from datetime import datetime
     line = f'[{datetime.now().isoformat(timespec="seconds")}] fetch_eu_recht: {msg}\n'
@@ -198,6 +237,7 @@ def main():
     db = get_db(autocommit=False)
     cur = db.cursor()
     inserted = 0
+    korrigiert = 0
     for r in rows:
         celex = r['celex']
         typ, typ_label = extract_typ_from_uri(r.get('type_uri'))
@@ -205,7 +245,9 @@ def main():
         titel_en = r.get('titel_en')
         titel_for_rg = titel_de or titel_en or ''
         rechtsgebiet = heuristik_rechtsgebiet(titel_for_rg)
-        datum = r.get('datum')
+        datum = plausibles_datum(r.get('datum'), titel_de, titel_en)
+        if datum != r.get('datum'):
+            log_line(f'{celex}: Datum {r.get("datum")} liegt in der Zukunft, nehme {datum or "keins"}')
         in_kraft = r.get('force')
         if in_kraft and len(str(in_kraft)) > 20:
             in_kraft = str(in_kraft)[:20]
@@ -222,13 +264,20 @@ def main():
             )
             if cur.rowcount:
                 inserted += 1
+            else:
+                # Ein schon gespeichertes Datum in der Zukunft ersetzen
+                cur.execute(
+                    'UPDATE eu_rechtsakte SET datum = %s WHERE celex = %s AND datum > CURDATE()',
+                    (datum, celex),
+                )
+                korrigiert += cur.rowcount
         except mysql.connector.Error as e:
             log_line(f'DB Insert Fehler {celex}: {e}')
 
     db.commit()
     cur.close()
     db.close()
-    log_line(f'Fertig, neu eingefügt (INSERT IGNORE Zeilen): {inserted}')
+    log_line(f'Fertig, neu eingefügt (INSERT IGNORE Zeilen): {inserted}, Datum korrigiert: {korrigiert}')
     return 0
 
 

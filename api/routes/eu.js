@@ -20,8 +20,11 @@ router.get("/eu-recht/stats", asyncHandler(async (_req, res) => {
     `SELECT rechtsgebiet, COUNT(*) AS c FROM eu_rechtsakte
      GROUP BY rechtsgebiet ORDER BY c DESC LIMIT 30`
   );
+  // Ein Datum in der Zukunft ist ein Tippfehler in den Cellar-Daten, kein neuester Rechtsakt
   const [[latest]] = await pool.query(
-    "SELECT MAX(datum) AS latest_datum, MAX(created_at) AS latest_created FROM eu_rechtsakte"
+    `SELECT MAX(CASE WHEN datum <= CURDATE() THEN datum END) AS latest_datum,
+            MAX(created_at) AS latest_created
+     FROM eu_rechtsakte`
   );
   res.json({
     total,

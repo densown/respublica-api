@@ -21,6 +21,22 @@ const EBENEN = new Set(["bund", "land", "eu"]);
 const STATUS = new Set(["kommend", "laufend", "abgeschlossen"]);
 const SLUG_RE = /^[a-z0-9-]{1,64}$/;
 
+/**
+ * Status, wie ihn das Frontend sieht: Ist der Wahltag vorbei, gilt ein
+ * Termin als abgeschlossen, auch wenn noch kein Ergebnis importiert ist.
+ * Bisher setzte erst der Ergebnis-Import den Status um, MV und Berlin
+ * (20.09.2026) standen deshalb Wochen spaeter noch als kommend da.
+ */
+const STATUS_SQL = `CASE WHEN w.status = 'kommend' AND w.datum < CURDATE()
+                         THEN 'abgeschlossen' ELSE w.status END`;
+
+/**
+ * Umfragen zaehlen nur bis zum Wahltag. Danach veroeffentlichte gehoeren zur
+ * naechsten Wahl, der Importer hing sie aber an den gelaufenen Termin, solange
+ * kein spaeterer existierte.
+ */
+const UMFRAGE_BIS_WAHLTAG = "(w.datum IS NULL OR u.veroeffentlicht <= w.datum)";
+
 // ODbL verlangt Namensnennung von Quelle und Autor.
 const QUELLE = Object.freeze({
   name: "dawum.de",
@@ -100,7 +116,7 @@ router.get(
         res.status(400).json({ error: "status ungültig" });
         return;
       }
-      where.push("w.status = ?");
+      where.push(`${STATUS_SQL} = ?`);
       params.push(status);
     }
 
@@ -115,10 +131,11 @@ router.get(
     }
 
     const [rows] = await getPool().query(
-      `SELECT w.slug, w.ebene, w.land, w.name_de, w.name_en, w.datum, w.status,
+      `SELECT w.slug, w.ebene, w.land, w.name_de, w.name_en, w.datum,
+              ${STATUS_SQL} AS status,
               COUNT(u.id) AS umfragen, MAX(u.veroeffentlicht) AS letzte_umfrage
          FROM wahltermine w
-         LEFT JOIN umfragen u ON u.wahltermin_id = w.id
+         LEFT JOIN umfragen u ON u.wahltermin_id = w.id AND ${UMFRAGE_BIS_WAHLTAG}
         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
         GROUP BY w.id
         ORDER BY w.datum IS NULL DESC, w.datum DESC`,
@@ -140,12 +157,13 @@ router.get(
     }
 
     const [rows] = await getPool().query(
-      `SELECT w.id, w.slug, w.ebene, w.land, w.name_de, w.name_en, w.datum, w.status,
+      `SELECT w.id, w.slug, w.ebene, w.land, w.name_de, w.name_en, w.datum,
+              ${STATUS_SQL} AS status,
               w.wahlbeteiligung, w.sitze_gesamt, w.ergebnis_status,
               w.ergebnis_stand, w.ergebnis_quelle, w.ergebnis_quelle_url,
               COUNT(u.id) AS umfragen, MAX(u.veroeffentlicht) AS letzte_umfrage
          FROM wahltermine w
-         LEFT JOIN umfragen u ON u.wahltermin_id = w.id
+         LEFT JOIN umfragen u ON u.wahltermin_id = w.id AND ${UMFRAGE_BIS_WAHLTAG}
         WHERE w.slug = ?
         GROUP BY w.id`,
       [slug],
@@ -159,8 +177,9 @@ router.get(
       `SELECT DISTINCT p.kuerzel, p.name, p.farbe_hex, p.sortierung
          FROM umfrage_werte v
          INNER JOIN umfragen u ON u.id = v.umfrage_id
+         INNER JOIN wahltermine w ON w.id = u.wahltermin_id
          INNER JOIN parteien p ON p.id = v.partei_id
-        WHERE u.wahltermin_id = ?
+        WHERE u.wahltermin_id = ? AND ${UMFRAGE_BIS_WAHLTAG}
         ORDER BY p.sortierung ASC`,
       [rows[0].id],
     );
@@ -193,10 +212,11 @@ router.get(
     }
 
     const [wahl] = await getPool().query(
-      `SELECT id, slug, ebene, land, name_de, name_en, datum, status,
-              wahlbeteiligung, sitze_gesamt, ergebnis_status,
-              ergebnis_stand, ergebnis_quelle, ergebnis_quelle_url
-         FROM wahltermine WHERE slug = ?`,
+      `SELECT w.id, w.slug, w.ebene, w.land, w.name_de, w.name_en, w.datum,
+              ${STATUS_SQL} AS status,
+              w.wahlbeteiligung, w.sitze_gesamt, w.ergebnis_status,
+              w.ergebnis_stand, w.ergebnis_quelle, w.ergebnis_quelle_url
+         FROM wahltermine w WHERE w.slug = ?`,
       [slug],
     );
     if (!wahl.length) {
@@ -219,9 +239,10 @@ router.get(
               u.befragte, u.methode,
               p.kuerzel, p.sortierung, v.prozent
          FROM umfragen u
+         INNER JOIN wahltermine w ON w.id = u.wahltermin_id
          INNER JOIN umfrage_werte v ON v.umfrage_id = u.id
          INNER JOIN parteien p ON p.id = v.partei_id
-        WHERE u.wahltermin_id = ?${institutFilter}
+        WHERE u.wahltermin_id = ? AND ${UMFRAGE_BIS_WAHLTAG}${institutFilter}
         ORDER BY u.veroeffentlicht ASC, u.id ASC, p.sortierung ASC`,
       params,
     );
@@ -251,8 +272,10 @@ router.get(
     }
 
     const [institute] = await getPool().query(
-      `SELECT DISTINCT institut FROM umfragen
-        WHERE wahltermin_id = ? ORDER BY institut ASC`,
+      `SELECT DISTINCT u.institut FROM umfragen u
+         INNER JOIN wahltermine w ON w.id = u.wahltermin_id
+        WHERE u.wahltermin_id = ? AND ${UMFRAGE_BIS_WAHLTAG}
+        ORDER BY u.institut ASC`,
       [wahlterminId],
     );
 

@@ -698,8 +698,9 @@ router.get("/world/stats", asyncHandler(async (_req, res) => {
   const [[{ indicators }]] = await pool.query(
     "SELECT COUNT(*) AS indicators FROM data_indicators WHERE is_active = 1",
   );
+  // Nur Jahre mit Messwerten: die Klimaprojektionen (Koeppen, SSP) reichen bis 2099
   const [[yr]] = await pool.query(
-    "SELECT MIN(year) AS y_min, MAX(year) AS y_max FROM data_values",
+    "SELECT MIN(year) AS y_min, MAX(year) AS y_max FROM data_values WHERE year <= YEAR(CURDATE())",
   );
   res.json({
     total_records: Number(total_records) || 0,
