@@ -227,7 +227,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` |
 | `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes` |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
-| `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
+| `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte`; Dokumentdatum in der Zukunft wird durch das Datum aus dem Titel ersetzt |
 | `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |
 | `fetch_versammlungen_berlin.py` | Demonstrations-Tracker: Liste der Polizei Berlin archivieren (gzip, nur bei Änderung) und nach `versammlungen` upserten, Status `vergangen`/`vor_termin_entfernt` nachführen; `--rebuild` baut alles aus dem Archiv neu |
 | `classify_versammlungen.py` | Themenkategorie für Versammlungen per Claude CLI (Batches à 120, max. 5 Aufrufe/Lauf) |

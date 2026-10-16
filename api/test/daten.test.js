@@ -1,7 +1,8 @@
 "use strict";
 
 // Prueft Verhalten mit Daten: Ausschnitte der Gesetze-Liste, Status von
-// Wahlterminen nach dem Wahltag, Umfragen nur bis zum Wahltag.
+// Wahlterminen nach dem Wahltag, Umfragen nur bis zum Wahltag, Datum in der
+// Zukunft bei EU-Recht und Weltdaten, Gesamtsumme im Lobbyregister.
 //
 // Schreibt Testzeilen in die Datenbank und laeuft deshalb nur in der
 // Wegwerf-Datenbank der CI (GitHub Actions) oder mit API_TEST_FIXTURES=1
@@ -48,6 +49,34 @@ test.before(async () => {
   await db.query(
     `INSERT INTO umfrage_werte (umfrage_id, partei_id, prozent) VALUES
      (901, 901, 30), (901, 902, 20), (902, 901, 31), (902, 902, 21), (903, 901, 25), (903, 902, 25)`,
+  );
+  // EU-Rechtsakt mit Tippfehler im Datum (wie 32026R2053: 2029 statt 2026)
+  await db.query(
+    `INSERT INTO eu_rechtsakte (id, celex, titel_de, typ, datum) VALUES
+     (90901, 'TEST2026R0001', 'Test vom 1. September 2026', 'REG', '2026-09-01'),
+     (90902, 'TEST2026R0002', 'Test vom 10. September 2026', 'REG', '2099-09-10')`,
+  );
+  // Messwerte bis 2020 und eine Projektion fuer 2099
+  await db.query(
+    `INSERT INTO data_sources (id, slug, name, provider) VALUES (901, 'test', 'Test', 'Test')`,
+  );
+  await db.query(
+    `INSERT INTO data_indicators (id, code, source_id, category, name_de, name_en) VALUES
+     (901, 'test.mess', 901, 'test', 'Messung', 'Measurement'),
+     (902, 'test.projektion', 901, 'test', 'Projektion', 'Projection')`,
+  );
+  await db.query(
+    `INSERT INTO data_values (indicator_id, country_code, year, value) VALUES
+     (901, 'DEU', 2019, 1), (901, 'DEU', 2020, 2), (902, 'DEU', 2099, 3)`,
+  );
+  // A ist in zwei Gebieten taetig, C nicht mehr aktiv
+  const foi = (...codes) => JSON.stringify(codes.map((code) => ({ code, de: code, en: code })));
+  await db.query(
+    `INSERT INTO lobbyregister (id, register_number, name, active, financial_expenses_euro, fields_of_interest) VALUES
+     (901, 'TEST001', 'A', 1, 100000, ?),
+     (902, 'TEST002', 'B', 1, 50000, ?),
+     (903, 'TEST003', 'C', 0, 1000000, ?)`,
+    [foi("FOI_X", "FOI_Y"), foi("FOI_X"), foi("FOI_X")],
   );
 });
 
@@ -103,4 +132,26 @@ test("Detail und Zeitreihe ohne Umfragen nach dem Wahltag", { skip }, async () =
 
   const sh = await agent.get("/api/wahltermine/test-sh-2099");
   assert.strictEqual(sh.body.wahl.status, "kommend");
+});
+
+test("EU-Recht: neuestes Datum nicht in der Zukunft", { skip }, async () => {
+  const res = await agent.get("/api/eu-recht/stats");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.latest_datum, "2026-09-01");
+});
+
+test("Weltdaten: Jahresspanne ohne Projektionen", { skip }, async () => {
+  const res = await agent.get("/api/world/stats");
+  assert.strictEqual(res.status, 200);
+  assert.deepStrictEqual(res.body.years_range, { min: 2019, max: 2020 });
+});
+
+test("Lobbyregister: Gesamtsumme zaehlt jede aktive Organisation einmal", { skip }, async () => {
+  const res = await agent.get("/api/lobbyregister/by-field");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.total_expenses, 150000);
+  const x = res.body.items.find((i) => i.code === "FOI_X");
+  const y = res.body.items.find((i) => i.code === "FOI_Y");
+  assert.strictEqual(x.total_expenses, 150000);
+  assert.strictEqual(y.total_expenses, 100000);
 });

@@ -188,8 +188,18 @@ router.get("/lobbyregister/by-field", asyncHandler(async (_req, res) => {
      ORDER BY total_expenses DESC
      LIMIT 15`,
   );
+  // Die Summe der Gebiete zaehlt eine Organisation in jedem ihrer Gebiete mit.
+  // Fuer die Gesamtsumme zaehlt jede aktive Organisation einmal.
+  const [[gesamt]] = await getPool().query(
+    `SELECT SUM(financial_expenses_euro) AS total_expenses
+     FROM lobbyregister
+     WHERE financial_expenses_euro IS NOT NULL
+       AND active = 1`,
+  );
 
   res.json({
+    total_expenses:
+      gesamt?.total_expenses != null ? Number(gesamt.total_expenses) : null,
     items: rows.map((r) => ({
       code: r.code,
       de: r.de,
