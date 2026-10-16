@@ -7,7 +7,7 @@ gruen ist. Es liegt kein Server-Schluessel bei GitHub.
 | Repo | Skript | Was passiert |
 |------|--------|--------------|
 | respublica-api | `deploy/autodeploy.sh` | `git merge --ff-only`, bei Bedarf `npm ci` in `api/` und `pip install`, `pm2 reload api`, Healthcheck auf `/api/health`. Faellt der durch: zurueck auf den alten Commit. |
-| respublica-dashboard | `deploy/autodeploy.sh` | Build nach `dist.next`, Tausch gegen `dist` erst nach vollstaendigem Build, alte Fassung bleibt als `dist.prev`. Danach Abruf von app.respublica.media, sonst zurueck. |
+| respublica-dashboard | `deploy/autodeploy.sh` | Build nach `dist.next`, Tausch gegen `dist` erst nach vollstaendigem Build, alte Fassung bleibt als `dist.prev`. Danach Abruf von app.respublica.media, sonst zurueck. Jeder ausgelieferte Build kommt ins Archiv `releases/` (die letzten 8). |
 
 Das Skript haelt an und meldet sich, statt zu deployen, wenn
 - die CI fuer den Commit rot ist,
@@ -21,6 +21,42 @@ Gemeldet wird einmal pro Commit und Grund in die Logdatei
 (`logs/autodeploy.log` bzw. `deploy.log` im Dashboard) und, falls gesetzt, an
 `DEPLOY_ALERT_URL` (z. B. ein Check bei healthchecks.io: jeder erfolgreiche
 Lauf pingt, jeder Fehler pingt `/fail` mit dem Grund).
+
+## Zurueck auf eine fruehere Version
+
+Geht nach einem Deploy etwas kaputt, setzt ein Befehl die vorige Fassung
+wieder live. Danach liefert der Timer den verlassenen Stand nicht erneut aus,
+erst den naechsten neuen Commit auf main, also typischerweise den Fix.
+
+```bash
+cd /root/apps/gesetze     # API
+cd /root/apps/dashboard   # Dashboard
+
+deploy/rollback.sh            # Versionen auflisten, nichts aendern
+deploy/rollback.sh zurueck    # eine Version zurueck
+deploy/rollback.sh <commit>   # auf einen bestimmten Stand
+```
+
+| | API | Dashboard |
+|---|---|---|
+| Was passiert | `git reset` auf den Commit, bei Bedarf `npm ci` bzw. `pip install`, `pm2 reload`, Healthcheck | Build aus `releases/` wird wieder `dist`, ohne neuen Build, danach Abruf der Seite |
+| Wie weit zurueck | jeder Commit auf main | die letzten 8 Deploys |
+| Dauer | bis die API wieder antwortet | Sekunden |
+
+Beide Skripte warten, falls gerade ein Deploy laeuft. Antwortet die
+zurueckgesetzte Fassung nicht, stellen sie den Stand davor wieder her. Die
+verlassene Fassung gilt als zurueckgenommen und wird bei `zurueck`
+uebersprungen; wer sie spaeter doch wieder will, nennt sie ausdruecklich.
+
+Die Datenbank setzt kein Skript zurueck. Liegt zwischen zwei API-Staenden eine
+Migration, bricht `rollback.sh` ab, bis man nach Pruefung mit
+`--trotz-migration` bestaetigt. Der naechste Deploy haelt dann bei derselben
+Migration an; ist sie schon eingespielt, geht es mit
+`deploy/autodeploy.sh --migrationen-erledigt` weiter. Taegliche Dumps:
+`/root/backups/gesetze`.
+
+Soll eine Weile gar nichts Neues live gehen, den Timer anhalten (siehe unten,
+Abschalten).
 
 ## Einrichten auf dem Server (einmalig, als root)
 
