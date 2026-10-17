@@ -81,16 +81,29 @@ router.get("/bundestag/abgeordnete/:id", asyncHandler(async (req, res) => {
  * Ohne den Filter wuerden die im Sitzhalbrund des Bundestags auftauchen —
  * der Endpoint muss deshalb explizit auf Mandate der laufenden
  * Bundestagsperiode eingrenzen.
+ *
+ * Standard sind die heutigen Mandate. Ausgeschiedene (mandat_bis in der
+ * Vergangenheit, Migration 019) fallen weg, sonst saessen sie neben ihren
+ * Nachrueckern im Halbrund. Mit ?alle=1 kommen sie mit, die
+ * Abstimmungsseite braucht sie fuer aeltere Abstimmungen.
  */
-router.get("/abgeordnete", asyncHandler(async (_req, res) => {
+router.get("/abgeordnete", asyncHandler(async (req, res) => {
+  const nurAktuelle = req.query.alle !== "1";
   const [rows] = await getPool().query(
-    `SELECT id, aw_id, name, fraktion, wahlkreis, foto_url, profil_url
+    `SELECT id, aw_id, name, fraktion, wahlkreis, foto_url, profil_url, mandat_von, mandat_bis
      FROM abgeordnete
      WHERE parliament_period = ? AND typ = 'mandat'
+       ${nurAktuelle ? "AND (mandat_bis IS NULL OR mandat_bis >= CURDATE())" : ""}
      ORDER BY fraktion, nachname`,
     [BUNDESTAG_PERIOD]
   );
-  res.json(rows);
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      mandat_von: formatDate(r.mandat_von),
+      mandat_bis: formatDate(r.mandat_bis),
+    }))
+  );
 }));
 
 /**
@@ -257,6 +270,35 @@ router.get("/bundestag/abstimmungen", asyncHandler(async (_req, res) => {
   res.json(out);
 }));
 
+/**
+ * Beschreibung, Quellen und Ergebnis laut abgeordnetenwatch (Migration 019,
+ * befuellt von scripts/fetch_abstimmungen.py). Ohne Zeile bleiben die Felder
+ * leer, die Seite rechnet das Ergebnis dann aus den Stimmen.
+ */
+async function abstimmungDetails(pollId) {
+  const [rows] = await getPool().query(
+    `SELECT intro, links, quelle_url, angenommen
+     FROM abstimmung_details
+     WHERE poll_id = ?`,
+    [pollId]
+  );
+  const d = rows[0];
+  if (!d) return { intro: null, links: [], quelle_url: null, angenommen: null };
+  let links = [];
+  try {
+    const l = typeof d.links === "string" ? JSON.parse(d.links) : d.links;
+    if (Array.isArray(l)) links = l;
+  } catch {
+    /* kaputtes JSON: ohne Links weiter */
+  }
+  return {
+    intro: d.intro || null,
+    links,
+    quelle_url: d.quelle_url || null,
+    angenommen: d.angenommen == null ? null : Boolean(d.angenommen),
+  };
+}
+
 router.get("/bundestag/abstimmungen/:pollId", asyncHandler(async (req, res) => {
   const pollId = Number.parseInt(req.params.pollId, 10);
   if (!Number.isFinite(pollId)) {
@@ -290,6 +332,7 @@ router.get("/bundestag/abstimmungen/:pollId", asyncHandler(async (req, res) => {
     abwesend_gesamt += abwesend;
     return { partei: r.partei, ja, nein, enthalten, abwesend };
   });
+  const details = await abstimmungDetails(pollId);
   res.json({
     poll_id: pollId,
     poll_titel: r0.poll_titel,
@@ -301,6 +344,7 @@ router.get("/bundestag/abstimmungen/:pollId", asyncHandler(async (req, res) => {
       abwesend_gesamt,
     },
     fraktionen,
+    ...details,
   });
 }));
 
@@ -310,8 +354,11 @@ router.get("/bundestag/poll-votes/:poll_id", asyncHandler(async (req, res) => {
     res.status(400).json({ error: "Ungültige poll_id" });
     return;
   }
+  // fraction_label: Fraktion zum Zeitpunkt der Abstimmung, so wie
+  // abgeordnetenwatch sie fuehrt ("SPD (Bundestag 2025 - 2029)"). Damit
+  // haben auch Nachruecker und Ausgeschiedene eine Fraktion.
   const [rows] = await getPool().query(
-    `SELECT v.mandate_id, v.vote, v.abgeordneter_name
+    `SELECT v.mandate_id, v.vote, v.abgeordneter_name, v.fraction_label
      FROM votes v
      WHERE v.poll_id = ?`,
     [pollId]
@@ -321,6 +368,7 @@ router.get("/bundestag/poll-votes/:poll_id", asyncHandler(async (req, res) => {
       mandate_id: Number(r.mandate_id),
       vote: r.vote,
       abgeordneter_name: r.abgeordneter_name,
+      fraction_label: r.fraction_label,
     })),
   });
 }));

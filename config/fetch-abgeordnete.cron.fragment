@@ -1,0 +1,6 @@
+# Taeglich 05:55 UTC: Mandate des 21. Bundestags aus abgeordnetenwatch (Nachruecker,
+# Ausgeschiedene mit mandat_bis, Fraktionswechsel). Laeuft vor der Pipeline ab 06:00,
+# damit sich die Abrufe nicht mit fetch_abstimmungen.py (06:10) ueberschneiden.
+# Eigenes Log, damit das Brain den letzten Lauf sieht; das Skript schreibt zusaetzlich nach cron.log.
+# Installation: Kopie nach /etc/cron.d/fetch-abgeordnete und systemctl restart cron
+55 5 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_abgeordnete.py >> /root/apps/gesetze/logs/fetch_abgeordnete.log 2>&1

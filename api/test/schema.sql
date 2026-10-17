@@ -898,3 +898,20 @@ CREATE TABLE `wahl_ergebnisse` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 SET FOREIGN_KEY_CHECKS=1;
+
+-- Abstimmungsdetails und Mandatsdauer (migrations/019_abstimmung_details.sql)
+CREATE TABLE IF NOT EXISTS abstimmung_details (
+  poll_id       INT          NOT NULL,
+  intro         MEDIUMTEXT   NULL,
+  links         TEXT         NULL,
+  intro_html    MEDIUMTEXT   NULL,
+  quelle_url    VARCHAR(500) NULL,
+  angenommen    TINYINT(1)   NULL,
+  aw_accepted   TINYINT(1)   NULL,
+  aktualisiert  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (poll_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE abgeordnete
+  ADD COLUMN IF NOT EXISTS mandat_von DATE NULL AFTER typ,
+  ADD COLUMN IF NOT EXISTS mandat_bis DATE NULL AFTER mandat_von;

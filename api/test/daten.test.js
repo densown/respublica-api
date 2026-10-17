@@ -78,6 +78,35 @@ test.before(async () => {
      (903, 'TEST003', 'C', 0, 1000000, ?)`,
     [foi("FOI_X", "FOI_Y"), foi("FOI_X"), foi("FOI_X")],
   );
+  // Abstimmung 990001 mit Beschreibung und Einzelstimmen, 990002 ohne
+  await db.query(
+    `INSERT INTO abstimmungen (partei, ja, nein, enthalten, abwesend, poll_id, poll_titel, poll_datum) VALUES
+     ('SPD (Bundestag 2025 - 2029)', 1, 0, 0, 0, 990001, 'Testabstimmung', '2026-10-08'),
+     ('AfD (Bundestag 2025 - 2029)', 0, 2, 0, 0, 990001, 'Testabstimmung', '2026-10-08'),
+     ('SPD (Bundestag 2025 - 2029)', 1, 0, 0, 0, 990002, 'Ohne Beschreibung', '2026-10-09')`,
+  );
+  await db.query(
+    `INSERT INTO abstimmung_details (poll_id, intro, links, quelle_url, angenommen, aw_accepted)
+     VALUES (990001, ?, ?, 'https://www.abgeordnetenwatch.de/bundestag/21/abstimmungen/test', 0, 1)`,
+    [
+      "Erster Absatz.\n\nDer Antrag wurde abgelehnt.",
+      JSON.stringify([
+        { titel: "Antrag", url: "https://dserver.bundestag.de/btd/21/012/2101234.pdf", dokument: "Drucksache 21/1234" },
+      ]),
+    ],
+  );
+  await db.query(
+    `INSERT INTO votes (vote_id, poll_id, mandate_id, abgeordneter_name, vote, fraction_id, fraction_label) VALUES
+     (99000101, 990001, 99001, 'Erika Muster', 'yes', 1, 'SPD (Bundestag 2025 - 2029)'),
+     (99000102, 990001, 99002, 'Max Muster', 'no', 2, 'AfD (Bundestag 2025 - 2029)')`,
+  );
+  // Abgeordnete: im Amt, ausgeschieden, nachgerueckt
+  await db.query(
+    `INSERT INTO abgeordnete (aw_id, parliament_period, typ, name, nachname, fraktion, mandat_von, mandat_bis) VALUES
+     (99001, 161, 'mandat', 'Erika Muster', 'Muster', 'SPD', NULL, NULL),
+     (99002, 161, 'mandat', 'Max Muster', 'Muster', 'AfD', NULL, '2026-08-31'),
+     (99003, 161, 'mandat', 'Nora Nach', 'Nach', 'SPD', '2026-09-01', NULL)`,
+  );
 });
 
 test.after(async () => {
@@ -154,4 +183,49 @@ test("Lobbyregister: Gesamtsumme zaehlt jede aktive Organisation einmal", { skip
   const y = res.body.items.find((i) => i.code === "FOI_Y");
   assert.strictEqual(x.total_expenses, 150000);
   assert.strictEqual(y.total_expenses, 100000);
+});
+
+test("Abstimmung mit Beschreibung, Quellen und Ergebnis laut Quelle", { skip }, async () => {
+  const res = await agent.get("/api/bundestag/abstimmungen/990001");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.ergebnis.ja_gesamt, 1);
+  assert.strictEqual(res.body.ergebnis.nein_gesamt, 2);
+  assert.strictEqual(res.body.intro, "Erster Absatz.\n\nDer Antrag wurde abgelehnt.");
+  assert.deepStrictEqual(res.body.links, [
+    { titel: "Antrag", url: "https://dserver.bundestag.de/btd/21/012/2101234.pdf", dokument: "Drucksache 21/1234" },
+  ]);
+  assert.strictEqual(res.body.quelle_url, "https://www.abgeordnetenwatch.de/bundestag/21/abstimmungen/test");
+  assert.strictEqual(res.body.angenommen, false);
+});
+
+test("Abstimmung ohne Beschreibung: Felder leer, Ergebnis offen", { skip }, async () => {
+  const res = await agent.get("/api/bundestag/abstimmungen/990002");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.intro, null);
+  assert.deepStrictEqual(res.body.links, []);
+  assert.strictEqual(res.body.quelle_url, null);
+  assert.strictEqual(res.body.angenommen, null);
+});
+
+test("Einzelstimmen mit Fraktion zum Zeitpunkt der Abstimmung", { skip }, async () => {
+  const res = await agent.get("/api/bundestag/poll-votes/990001");
+  assert.strictEqual(res.status, 200);
+  const nachId = Object.fromEntries(res.body.votes.map((v) => [v.mandate_id, v]));
+  assert.strictEqual(nachId[99001].fraction_label, "SPD (Bundestag 2025 - 2029)");
+  assert.strictEqual(nachId[99002].fraction_label, "AfD (Bundestag 2025 - 2029)");
+});
+
+test("Abgeordnete: Ausgeschiedene nur mit alle=1", { skip }, async () => {
+  const testZeilen = (body) => body.filter((a) => a.aw_id >= 99001 && a.aw_id <= 99003);
+  const aktuell = await agent.get("/api/abgeordnete");
+  assert.strictEqual(aktuell.status, 200);
+  assert.deepStrictEqual(testZeilen(aktuell.body).map((a) => a.aw_id).sort(), [99001, 99003]);
+  const nach = testZeilen(aktuell.body).find((a) => a.aw_id === 99003);
+  assert.strictEqual(nach.mandat_von, "2026-09-01");
+  assert.strictEqual(nach.mandat_bis, null);
+
+  const alle = await agent.get("/api/abgeordnete?alle=1");
+  const weg = testZeilen(alle.body).find((a) => a.aw_id === 99002);
+  assert.strictEqual(weg.mandat_bis, "2026-08-31");
+  assert.strictEqual(testZeilen(alle.body).length, 3);
 });
