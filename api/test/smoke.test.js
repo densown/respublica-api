@@ -30,6 +30,7 @@ const EXPECT_200 = [
   "/api/bundestag/sitzverteilung",
   "/api/bundestag/abgeordnete",
   "/api/abgeordnete",
+  "/api/abgeordnete?alle=1",
   "/api/bundestag/abstimmungen",
   "/api/eu-recht/stats",
   "/api/eu-recht?limit=1",

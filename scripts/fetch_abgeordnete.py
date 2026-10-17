@@ -6,12 +6,15 @@ Standard ist der 21. Bundestag (parliament_period 161). Ueber
 die Landtagswahl Sachsen-Anhalt 2026. Mandate und Kandidaturen landen in
 derselben Tabelle und werden ueber die Spalte `typ` unterschieden — so
 fuehrt es auch die Quelle.
+
+Laeuft taeglich (config/fetch-abgeordnete.cron.fragment), damit Nachruecker
+dazukommen und Ausgeschiedene ein Mandatsende (`mandat_bis`) bekommen.
 """
 import argparse
 import os
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime
 from urllib.parse import urlencode
 
 import mysql.connector
@@ -53,6 +56,34 @@ def clean_fraction_label(label):
     s = str(label).strip()
     s = re.sub(r'\s*\(\s*Bundestag\s+[^)]*\)\s*$', '', s, flags=re.I).strip()
     return s or str(label).strip()
+
+
+def datum_oder_none(raw):
+    """'2026-03-01' als date, sonst None."""
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def aktuelle_fraktion(fracs):
+    """Fraktion, der jemand jetzt angehoert oder zuletzt angehoert hat.
+
+    Fraktionswechsel fuehrt abgeordnetenwatch als mehrere Eintraege mit
+    valid_from und valid_until. Bisher galt der erste Eintrag, das kann die
+    alte Fraktion sein.
+    """
+    eintraege = [f for f in fracs or [] if isinstance(f, dict)]
+    if not eintraege:
+        return None
+    offen = [f for f in eintraege if not f.get('valid_until')]
+    if offen:
+        f = max(offen, key=lambda f: f.get('valid_from') or '')
+    else:
+        f = max(eintraege, key=lambda f: f.get('valid_until') or '')
+    return clean_fraction_label((f.get('fraction') or {}).get('label'))
 
 
 def vorname_nachname_from_politician(politician):
@@ -100,11 +131,7 @@ def extract_row(item):
     politiker_id = politician.get('id')
     vorname, nachname, name = vorname_nachname_from_politician(politician)
 
-    fracs = item.get('fraction_membership') or []
-    fraktion = None
-    if fracs and isinstance(fracs[0], dict):
-        frac = (fracs[0].get('fraction') or {}).get('label')
-        fraktion = clean_fraction_label(frac)
+    fraktion = aktuelle_fraktion(item.get('fraction_membership'))
 
     ed = item.get('electoral_data') or {}
     listenplatz = ed.get('list_position')
@@ -136,6 +163,10 @@ def extract_row(item):
     # abgeordnetenwatch unterscheidet Mandat und Kandidatur ueber `type`.
     typ = 'kandidatur' if str(item.get('type') or '').lower() == 'candidacy' else 'mandat'
 
+    # Nur gesetzt, wenn abweichend von der Wahlperiode: Nachruecken, Verzicht, Tod
+    mandat_von = datum_oder_none(item.get('start_date'))
+    mandat_bis = datum_oder_none(item.get('end_date'))
+
     periode = ((item.get('parliament_period') or {}).get('id'))
     try:
         periode = int(periode) if periode is not None else None
@@ -147,6 +178,8 @@ def extract_row(item):
         politiker_id,
         periode,
         typ,
+        mandat_von,
+        mandat_bis,
         vorname,
         nachname,
         name,
@@ -161,15 +194,18 @@ def extract_row(item):
 
 UPSERT_SQL = '''
 INSERT INTO abgeordnete (
-  aw_id, politiker_id, parliament_period, typ, vorname, nachname, name, fraktion,
-  partei, wahlkreis, wahlkreis_nr, listenplatz, profil_url, foto_url
+  aw_id, politiker_id, parliament_period, typ, mandat_von, mandat_bis, vorname,
+  nachname, name, fraktion, partei, wahlkreis, wahlkreis_nr, listenplatz,
+  profil_url, foto_url
 ) VALUES (
-  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL
+  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL
 )
 ON DUPLICATE KEY UPDATE
   politiker_id = VALUES(politiker_id),
   parliament_period = VALUES(parliament_period),
   typ = VALUES(typ),
+  mandat_von = VALUES(mandat_von),
+  mandat_bis = VALUES(mandat_bis),
   partei = VALUES(partei),
   vorname = VALUES(vorname),
   nachname = VALUES(nachname),
