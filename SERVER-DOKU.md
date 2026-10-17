@@ -114,7 +114,7 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/bundestag/abgeordnete` | Alle Abgeordneten |
 | GET | `/api/bundestag/abgeordnete/:id` | Ein Abgeordneter (`aw_id`) |
 | GET | `/api/bundestag/abstimmungen` | Abstimmungen Übersicht |
-| GET | `/api/bundestag/abstimmungen/:pollId` | Abstimmung nach pollId, mit `intro` (Absätze durch Leerzeile), `links` (`titel`, `url`, `dokument`), `quelle_url` und `angenommen` (laut Schlusssatz der Quelle, `null` wenn unklar) |
+| GET | `/api/bundestag/abstimmungen/:pollId` | Abstimmung nach pollId, mit `intro` (Absätze durch Leerzeile), `links` (`titel`, `url`, `dokument`), `quelle_url` und `angenommen` (mehr Ja als Nein; der Text der Quelle zählt nur bei verfehlter qualifizierter Mehrheit oder solange Stimmen fehlen, dann `null` wenn unklar) |
 | GET | `/api/bundestag/poll-votes/:poll_id` | Einzelstimmen einer Abstimmung (`mandate_id` → `vote`, `fraction_label` zum Zeitpunkt der Abstimmung) |
 | GET | `/api/abgeordnete` | Heutige Abgeordnete (id, aw_id, Name, Fraktion, Wahlkreis, Foto, Profil, `mandat_von`, `mandat_bis`); `?alle=1` auch Ausgeschiedene |
 | GET | `/api/abgeordnete/:aw_id/votes` | Abstimmungshistorie eines Abgeordneten |
@@ -177,7 +177,7 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 04:00 | `gii_sync.py` | Metadaten von gesetze-im-internet.de (`gii-toc.xml`, `xml.zip`) nach `gesetze` (Vorschlag: `config/gesetze-gii-sync.cron.fragment` nach `/etc/cron.d/` kopieren) |
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
-| 05:55 | `fetch_abgeordnete.py` | Mandate WP 161 → `abgeordnete` (Nachrücker, `mandat_bis` für Ausgeschiedene, Fraktionswechsel; Fragment: `config/fetch-abgeordnete.cron.fragment`) |
+| 05:55 | `fetch_abgeordnete.py` | Mandate WP 161 → `abgeordnete` (Nachrücker, Fraktionswechsel; `mandat_bis` für Ausgeschiedene per Einzelabruf, weil sie aus der Liste fallen; Fragment: `config/fetch-abgeordnete.cron.fragment`) |
 | 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen`, Beschreibung, Links und Ergebnis → `abstimmung_details` (wiederholt bei 429) |
 | 06:12 | `fetch_votes.py` | Einzelstimmen nur für Abstimmungen ohne Einträge in `votes` (`--all` lädt alle neu; Fragment: `config/fetch-votes.cron.fragment`) |
 | 06:15 | `fetch_bgbl.py` | BGBl-Aktualitätendienst → `bgbl_referenz` an `aenderungen` |
@@ -226,9 +226,9 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `gii_initial_import.py` | Erstimport oder Stichprobe (`--limit N`) |
 | `gesetze_mapping_overrides.json` | BJNR zu bestehendem `kuerzel` |
 | `enrich_eu_urteile.py` | EU-Urteile anreichern (EUR-Lex, RDF, SPARQL) |
-| `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete`, inkl. Mandatsdauer und aktueller Fraktion |
+| `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete`, inkl. Mandatsdauer und aktueller Fraktion. Wer nicht mehr in der Liste der Wahlperiode steht, bekommt `mandat_bis` aus dem Einzelabruf (nur bei vollständiger Liste, höchstens 30) |
 | `fetch_abgeordnete_fotos.py` | Fehlende `foto_url`/`politiker_id` in `abgeordnete` per AW-API nachziehen |
-| `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` und `abstimmung_details` (Einleitungstext ohne HTML, Links mit Drucksachennummer, Ergebnis laut Schlusssatz) |
+| `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` und `abstimmung_details` (Einleitungstext ohne HTML; Links mit Drucksachennummer, ohne Seiten von abgeordnetenwatch; Ergebnis aus Ja gegen Nein, bei Beschlussempfehlungen gelten die Stimmen der Empfehlung) |
 | `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes` |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte`; Dokumentdatum in der Zukunft wird durch das Datum aus dem Titel ersetzt |

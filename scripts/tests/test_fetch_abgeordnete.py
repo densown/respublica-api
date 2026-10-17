@@ -77,3 +77,74 @@ def test_ohne_offene_mitgliedschaft_gilt_die_letzte():
 
 def test_ohne_fraktion():
     assert spalten(mandat(fraction_membership=[]))["fraktion"] is None
+
+
+class _Cursor:
+    """Nimmt SELECT und UPDATE von ausgeschiedene_nachtragen entgegen."""
+
+    def __init__(self, ohne_ende):
+        self.ohne_ende = ohne_ende
+        self.updates = []
+
+    def execute(self, sql, params=()):
+        if sql.lstrip().upper().startswith('SELECT'):
+            self._zeilen = [(aw_id,) for aw_id in self.ohne_ende]
+        else:
+            self.updates.append(params)
+
+    def fetchall(self):
+        return self._zeilen
+
+
+class _Antwort:
+    def __init__(self, status, data=None):
+        self.status_code = status
+        self._data = data
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise fab.requests.HTTPError(str(self.status_code))
+
+    def json(self):
+        return {'data': self._data}
+
+
+def _abrufe(monkeypatch, antworten):
+    urls = []
+
+    def get(url, headers, timeout):
+        urls.append(url)
+        return antworten[url.rsplit('/', 1)[1]]
+
+    monkeypatch.setattr(fab.requests, 'get', get)
+    monkeypatch.setattr(fab.time, 'sleep', lambda s: None)
+    return urls
+
+
+def test_ausgeschiedene_bekommen_enddatum_aus_dem_einzelabruf(monkeypatch):
+    # Wie Ronja Kemmer am 17.10.2026: nicht mehr in der Liste, im Einzelabruf mit end_date
+    urls = _abrufe(monkeypatch, {
+        '68639': _Antwort(200, {
+            'id': 68639,
+            'end_date': '2026-05-21',
+            'info': 'Ronja Kemmer ist am 21.05.2026 ausgeschieden. Nachgerückt ist Christoph Naser am 27.05.2026.',
+        }),
+    })
+    cur = _Cursor([68639, 70562])
+    assert fab.ausgeschiedene_nachtragen(cur, 161, {70562}) == 1
+    assert urls == [f'{fab.BASE}/68639']
+    assert cur.updates == [(date(2026, 5, 21), 68639)]
+
+
+def test_ohne_enddatum_oder_404_bleibt_alles_wie_es_ist(monkeypatch):
+    _abrufe(monkeypatch, {'1': _Antwort(200, {'id': 1, 'end_date': None}), '2': _Antwort(404)})
+    cur = _Cursor([1, 2])
+    assert fab.ausgeschiedene_nachtragen(cur, 161, set()) == 0
+    assert cur.updates == []
+
+
+def test_fehlen_zu_viele_wird_nichts_nachgetragen(monkeypatch):
+    urls = _abrufe(monkeypatch, {})
+    cur = _Cursor(list(range(fab.MAX_AUSGESCHIEDENE + 1)))
+    assert fab.ausgeschiedene_nachtragen(cur, 161, set()) == 0
+    assert urls == [] and cur.updates == []

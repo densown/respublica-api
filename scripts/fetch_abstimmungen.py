@@ -178,6 +178,22 @@ ABSATZ_TAGS = {
 PDF_HINWEIS = re.compile(r"\s*\(\s*PDF\b[^)]{0,30}\)", re.I)
 # Woerter, die als Linktext nichts ueber das Ziel sagen
 LEERE_LINKTEXTE = {"", "pdf", "hier", "link", "dokument"}
+# Links auf abgeordnetenwatch selbst (Profile, Ausschuesse, Fraktionslisten,
+# fruehere Abstimmungen) sind keine Quellen. Die Seite der Abstimmung selbst
+# steht ohnehin als quelle_url daneben.
+AW_HOSTS = {"www.abgeordnetenwatch.de", "abgeordnetenwatch.de"}
+# Dokumentarten, auf die ein Linktext wie "dritte und letzte Gesetzentwurf"
+# gekuerzt wird. Zusammengesetzte zuerst, sonst gewinnt "Antrag".
+DOKUMENTARTEN = (
+    "Änderungsantrag", "Entschließungsantrag", "Beschlussempfehlung", "Gesetzentwurf",
+    "Antrag", "Bericht", "Unterrichtung", "Verordnung", "Stellungnahme", "Plenarprotokoll",
+)
+# Schlussabsatz nennt eine Mehrheit, die mehr verlangt als mehr Ja als Nein
+QUALIFIZIERTE_MEHRHEIT = re.compile(
+    r"zwei\s*-?\s*drittel|kanzlermehrheit|mehrheit (?:der|aller) mitglieder"
+    r"|erforderlichen? mehrheit|absoluten? mehrheit",
+    re.I,
+)
 
 DETAILS_SQL = """
 INSERT INTO abstimmung_details
@@ -257,13 +273,26 @@ def dokument_aus_url(url: str) -> str | None:
     return None
 
 
+def dokumentart(text: str) -> str | None:
+    """Dokumentart in einem Linktext, auch gebeugt ("des Antrags"); sonst None."""
+    for art in DOKUMENTARTEN:
+        if re.search(rf"\b{art}(?:e?s)?\b", text, re.I):
+            return art
+    return None
+
+
 def link_eintrag(href: str, text: str, davor: str) -> dict[str, Any] | None:
-    """Ein Link aus dem Einleitungstext als {titel, url, dokument}; None fuer Anker und Mail."""
+    """Ein Link aus dem Einleitungstext als {titel, url, dokument}.
+
+    None fuer Anker, Mail und Links auf abgeordnetenwatch selbst.
+    """
     href = (href or "").strip()
     if not href or href.startswith("#"):
         return None
     url = urllib.parse.urljoin(AW_WEB + "/", href)
     if not url.startswith(("https://", "http://")):
+        return None
+    if (urllib.parse.urlsplit(url).hostname or "").lower() in AW_HOSTS:
         return None
     dokument = dokument_aus_url(url)
     titel = _saeubern(PDF_HINWEIS.sub("", text))
@@ -273,6 +302,10 @@ def link_eintrag(href: str, text: str, davor: str) -> dict[str, Any] | None:
         titel = m.group(1).strip(",;:") if m else ""
     if titel.lower() in LEERE_LINKTEXTE:
         titel = dokument or "Dokument"
+    art = dokumentart(titel)
+    if art and (titel[:1].islower() or re.fullmatch(rf"{art}(?:e?s)?", titel, re.I)):
+        # Satzteil als Linktext ("dritte und letzte Gesetzentwurf"): nur die Art
+        titel = art
     return {"titel": titel[:200], "url": url[:500], "dokument": dokument}
 
 
@@ -322,11 +355,30 @@ def ergebnis_aus_intro(absaetze: list[str]) -> bool | None:
     return ja
 
 
-def details_aus_poll(poll: dict[str, Any]) -> tuple[Any, ...] | None:
+def ergebnis(ja: int, nein: int, absaetze: list[str]) -> bool | None:
+    """Ob angenommen ist, worueber namentlich abgestimmt wurde.
+
+    Massgeblich sind die Stimmen: mehr Ja als Nein. Der Schlussabsatz nennt oft
+    zwei Ergebnisse ("Die Beschlussempfehlung wurde mit 443 Ja-Stimmen ...
+    angenommen. Der Antrag ... wurde demnach abgelehnt."), Ja und Nein gelten
+    dann der Beschlussempfehlung. Der Text zaehlt nur, solange es noch keine
+    Stimmen gibt, oder wenn er "abgelehnt" sagt und eine qualifizierte Mehrheit
+    nennt: Dann kann trotz Ja-Mehrheit abgelehnt sein.
+    """
+    text = ergebnis_aus_intro(absaetze)
+    if ja + nein == 0:
+        return text
+    if text is False and ja > nein and QUALIFIZIERTE_MEHRHEIT.search(absaetze[-1]):
+        return False
+    return ja > nein
+
+
+def details_aus_poll(poll: dict[str, Any], ja: int = 0, nein: int = 0) -> tuple[Any, ...] | None:
     """Zeile fuer abstimmung_details; None, wenn die Liste kein field_intro mitliefert.
 
-    Ohne das Feld bleibt eine vorhandene Zeile unangetastet, statt sie mit
-    leeren Werten zu ueberschreiben.
+    ja und nein: Stimmen insgesamt, fuer das Ergebnis. Ohne das Feld bleibt
+    eine vorhandene Zeile unangetastet, statt sie mit leeren Werten zu
+    ueberschreiben.
     """
     pid = poll_id_as_int(poll.get("id"))
     if pid is None or "field_intro" not in poll:
@@ -334,7 +386,7 @@ def details_aus_poll(poll: dict[str, Any]) -> tuple[Any, ...] | None:
     roh = poll.get("field_intro")
     roh = roh if isinstance(roh, str) and roh.strip() else None
     absaetze, links = intro_zerlegen(roh)
-    angenommen = ergebnis_aus_intro(absaetze)
+    angenommen = ergebnis(ja, nein, absaetze)
     quelle = poll.get("abgeordnetenwatch_url")
     quelle = quelle[:500] if isinstance(quelle, str) and quelle.startswith("http") else None
     accepted = poll.get("field_accepted")
@@ -397,15 +449,19 @@ def main() -> int:
                 titel = str(titel)
             poll_datum = parse_poll_datum(poll)
 
-            details = details_aus_poll(poll)
+            votes = fetch_all_votes(pid)
+            by_fr = aggregate_by_fraction(votes)
+
+            details = details_aus_poll(
+                poll,
+                sum(z["ja"] for z in by_fr.values()),
+                sum(z["nein"] for z in by_fr.values()),
+            )
             if details is None:
                 ohne_intro += 1
             else:
                 cur.execute(DETAILS_SQL, details)
                 details_abgeglichen += 1
-
-            votes = fetch_all_votes(pid)
-            by_fr = aggregate_by_fraction(votes)
 
             for partei, z in by_fr.items():
                 ja, nein, enthalten, abwesend = (
