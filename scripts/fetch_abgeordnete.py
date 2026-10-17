@@ -9,6 +9,8 @@ fuehrt es auch die Quelle.
 
 Laeuft taeglich (config/fetch-abgeordnete.cron.fragment), damit Nachruecker
 dazukommen und Ausgeschiedene ein Mandatsende (`mandat_bis`) bekommen.
+Ausgeschiedene fuehrt abgeordnetenwatch nicht mehr in der Liste der
+Wahlperiode; ihr Enddatum kommt aus dem Einzelabruf des Mandats.
 """
 import argparse
 import os
@@ -29,6 +31,9 @@ PARLIAMENT_PERIOD = 161
 PAGER_LIMIT = 100
 LOG_PATH = '/root/apps/gesetze/logs/cron.log'
 PAGE_SLEEP_SEC = 2
+# Fehlen mehr Mandate in der Liste, stimmt eher mit der Liste etwas nicht als
+# mit den Abgeordneten: dann nichts nachtragen.
+MAX_AUSGESCHIEDENE = 30
 
 HEADERS = {
     'Accept': 'application/json',
@@ -231,6 +236,42 @@ def fetch_page(page, periode=PARLIAMENT_PERIOD):
     return r.json()
 
 
+def ausgeschiedene_nachtragen(cur, periode, aktuelle_ids):
+    """Mandatsende fuer Abgeordnete, die nicht mehr in der Liste der Wahlperiode stehen.
+
+    Wer ausscheidet, faellt bei abgeordnetenwatch aus der Liste; der Einzelabruf
+    liefert weiter end_date ("Ronja Kemmer ist am 21.05.2026 ausgeschieden").
+    Ohne diesen Schritt bliebe die alte Zeile ohne mandat_bis stehen und zaehlte
+    als im Amt (am 17.10.2026: 634 statt 630). Gibt die Zahl der nachgetragenen
+    Mandate zurueck.
+    """
+    cur.execute(
+        "SELECT aw_id FROM abgeordnete"
+        " WHERE parliament_period = %s AND typ = 'mandat' AND mandat_bis IS NULL",
+        (periode,),
+    )
+    fehlend = [r[0] for r in cur.fetchall() if r[0] not in aktuelle_ids]
+    if len(fehlend) > MAX_AUSGESCHIEDENE:
+        log_line(f'{len(fehlend)} Mandate fehlen in der Liste, mehr als {MAX_AUSGESCHIEDENE}: '
+                 'kein Mandatsende nachgetragen, Liste pruefen')
+        return 0
+    nachgetragen = 0
+    for aw_id in fehlend:
+        r = requests.get(f'{BASE}/{aw_id}', headers=HEADERS, timeout=60)
+        if r.status_code == 404:
+            log_line(f'Mandat {aw_id} fehlt in der Liste und im Einzelabruf')
+            continue
+        r.raise_for_status()
+        ende = datum_oder_none((r.json().get('data') or {}).get('end_date'))
+        if ende is None:
+            log_line(f'Mandat {aw_id} fehlt in der Liste, hat aber kein end_date')
+        else:
+            cur.execute('UPDATE abgeordnete SET mandat_bis = %s WHERE aw_id = %s', (ende, aw_id))
+            nachgetragen += 1
+        time.sleep(PAGE_SLEEP_SEC)
+    return nachgetragen
+
+
 def main():
     ap = argparse.ArgumentParser(description='Mandate/Kandidaturen importieren')
     ap.add_argument('--parliament-period', type=int, default=PARLIAMENT_PERIOD,
@@ -242,7 +283,9 @@ def main():
     cur = db.cursor()
     page = 0
     total_pages = None
+    total = 0
     processed = 0
+    aktuelle_ids = set()
 
     try:
         while True:
@@ -267,6 +310,7 @@ def main():
 
             for row in batch:
                 cur.execute(UPSERT_SQL, row)
+                aktuelle_ids.add(row[0])
                 processed += 1
 
             db.commit()
@@ -276,7 +320,16 @@ def main():
             page += 1
             time.sleep(PAGE_SLEEP_SEC)
 
-        log_line(f'Fertig, {processed} Datensätze verarbeitet (INSERT/UPDATE)')
+        # Nur mit vollstaendiger Liste, sonst gaelten Fehlende als ausgeschieden
+        if total and len(aktuelle_ids) >= total:
+            ausgeschieden = ausgeschiedene_nachtragen(cur, periode, aktuelle_ids)
+            db.commit()
+        else:
+            ausgeschieden = 0
+            log_line(f'Liste unvollstaendig ({len(aktuelle_ids)} von {total}), Ausgeschiedene nicht geprueft')
+
+        log_line(f'Fertig, {processed} Datensätze verarbeitet (INSERT/UPDATE), '
+                 f'Mandatsende fuer {ausgeschieden} Ausgeschiedene nachgetragen')
         return 0
     except requests.RequestException as e:
         log_line(f'API-Fehler: {e}')
