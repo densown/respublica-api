@@ -12,6 +12,7 @@ import urllib.error
 import pytest
 
 import fetch_abstimmungen as fa
+from lib import aw
 
 DRUCKSACHE = "https://dserver.bundestag.de/btd/21/012/2101234.pdf"
 SCHLUSS = (
@@ -259,8 +260,8 @@ def test_fetch_json_wiederholt_bei_429(monkeypatch):
             raise a
         return a
 
-    monkeypatch.setattr(fa.urllib.request, "urlopen", urlopen)
-    monkeypatch.setattr(fa.time, "sleep", pausen.append)
+    monkeypatch.setattr(aw.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(aw.time, "sleep", pausen.append)
     assert fa.fetch_json("https://x") == {"data": []}
     assert pausen == [2, 6]
 
@@ -272,8 +273,8 @@ def test_fetch_json_gibt_bei_404_sofort_auf(monkeypatch):
         aufrufe.append(req)
         raise _http_fehler(404)
 
-    monkeypatch.setattr(fa.urllib.request, "urlopen", urlopen)
-    monkeypatch.setattr(fa.time, "sleep", lambda s: None)
+    monkeypatch.setattr(aw.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(aw.time, "sleep", lambda s: None)
     with pytest.raises(urllib.error.HTTPError):
         fa.fetch_json("https://x")
     assert len(aufrufe) == 1
@@ -286,8 +287,8 @@ def test_fetch_json_gibt_nach_fuenf_versuchen_auf(monkeypatch):
         aufrufe.append(req)
         raise _http_fehler(429)
 
-    monkeypatch.setattr(fa.urllib.request, "urlopen", urlopen)
-    monkeypatch.setattr(fa.time, "sleep", lambda s: None)
+    monkeypatch.setattr(aw.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(aw.time, "sleep", lambda s: None)
     with pytest.raises(urllib.error.HTTPError):
         fa.fetch_json("https://x")
-    assert len(aufrufe) == fa.VERSUCHE
+    assert len(aufrufe) == aw.VERSUCHE

@@ -15,10 +15,8 @@ from __future__ import annotations
 import json
 import re
 import sys
-import time
 import urllib.error
 import urllib.parse
-import urllib.request
 from collections import defaultdict
 from datetime import date
 from html.parser import HTMLParser
@@ -29,46 +27,29 @@ import mysql.connector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from lib import aw
 from lib.db import get_db
 from lib.env import load_env
+from lib.log import acquire_lock, release_lock
 
 BASE = "https://www.abgeordnetenwatch.de/api/v2"
 AW_WEB = "https://www.abgeordnetenwatch.de"
 LEGISLATURE = 161
 POLL_PAGE = 100
 VOTES_PAGE = 1000
-VERSUCHE = 5
+# fetch_votes.py wartet, solange dieses Lock gehalten wird
+LOCK_NAME = "fetch_abstimmungen"
 
 UA = "gesetze-fetch/1.0 (+https://github.com/bundestag/gesetze)"
 
 
-def wartezeit(err: urllib.error.HTTPError, versuch: int) -> float:
-    """Sekunden bis zum naechsten Versuch: Retry-After der Quelle, sonst 3, 6, 12, 24."""
-    raw = err.headers.get("Retry-After") if err.headers else None
-    if raw and str(raw).strip().isdigit():
-        return min(int(str(raw).strip()), 60)
-    return 3 * 2**versuch
-
-
 def fetch_json(url: str) -> dict[str, Any]:
-    """GET mit bis zu fuenf Versuchen bei 429 und 5xx.
+    """GET mit Wiederholung bei 429 und 5xx (lib/aw.py).
 
     abgeordnetenwatch drosselt gelegentlich (429), ein zweiter Versuch nach ein
     paar Sekunden klappt. Ohne Wiederholung brach der Lauf beim ersten 429 ab.
     """
-    for versuch in range(VERSUCHE):
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": UA, "Accept": "application/json"},
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                return json.loads(resp.read().decode("utf-8"))
-        except urllib.error.HTTPError as e:
-            if versuch == VERSUCHE - 1 or not (e.code == 429 or e.code >= 500):
-                raise
-            time.sleep(wartezeit(e, versuch))
-    raise AssertionError("nicht erreichbar")
+    return aw.json_abrufen(url, UA)
 
 
 def fetch_all_polls() -> list[dict[str, Any]]:
@@ -424,6 +405,15 @@ def poll_id_as_int(raw: Any) -> int | None:
 
 
 def main() -> int:
+    if not acquire_lock(LOCK_NAME):
+        return 1
+    try:
+        return abgleichen()
+    finally:
+        release_lock(LOCK_NAME)
+
+
+def abgleichen() -> int:
     load_env()
 
     try:

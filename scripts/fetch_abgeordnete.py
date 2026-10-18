@@ -20,6 +20,7 @@ from datetime import date, datetime
 from urllib.parse import urlencode
 
 import mysql.connector
+from lib import aw
 from lib.db import get_db as lib_get_db
 import requests
 from dotenv import load_dotenv
@@ -224,14 +225,26 @@ ON DUPLICATE KEY UPDATE
 '''
 
 
+def abrufen(url):
+    """GET bei abgeordnetenwatch, bei 429 und 5xx mit Pausen wiederholt (lib/aw.py).
+
+    Gibt die letzte Antwort zurueck; den Status prueft der Aufrufer.
+    """
+    for versuch in range(aw.VERSUCHE):
+        r = requests.get(url, headers=HEADERS, timeout=60)
+        if versuch == aw.VERSUCHE - 1 or not aw.wiederholen_bei(r.status_code):
+            return r
+        time.sleep(aw.wartezeit(r.headers.get('Retry-After'), versuch))
+    raise AssertionError('nicht erreichbar')
+
+
 def fetch_page(page, periode=PARLIAMENT_PERIOD):
     q = urlencode({
         'parliament_period': periode,
         'page': page,
         'pager_limit': PAGER_LIMIT,
     })
-    url = f'{BASE}?{q}'
-    r = requests.get(url, headers=HEADERS, timeout=60)
+    r = abrufen(f'{BASE}?{q}')
     r.raise_for_status()
     return r.json()
 
@@ -242,8 +255,9 @@ def ausgeschiedene_nachtragen(cur, periode, aktuelle_ids):
     Wer ausscheidet, faellt bei abgeordnetenwatch aus der Liste; der Einzelabruf
     liefert weiter end_date ("Ronja Kemmer ist am 21.05.2026 ausgeschieden").
     Ohne diesen Schritt bliebe die alte Zeile ohne mandat_bis stehen und zaehlte
-    als im Amt (am 17.10.2026: 634 statt 630). Gibt die Zahl der nachgetragenen
-    Mandate zurueck.
+    als im Amt (am 17.10.2026: 634 statt 630). Scheitert ein Einzelabruf auch
+    nach den Wiederholungen, bleibt dieses Mandat bis zum naechsten Lauf offen;
+    die uebrigen laufen weiter. Gibt die Zahl der nachgetragenen Mandate zurueck.
     """
     cur.execute(
         "SELECT aw_id FROM abgeordnete"
@@ -257,18 +271,27 @@ def ausgeschiedene_nachtragen(cur, periode, aktuelle_ids):
         return 0
     nachgetragen = 0
     for aw_id in fehlend:
-        r = requests.get(f'{BASE}/{aw_id}', headers=HEADERS, timeout=60)
+        # Pause auch vor dem ersten Abruf: direkt nach der letzten Listenseite
+        # antwortete abgeordnetenwatch am 17. und 18.10.2026 mit 429
+        time.sleep(PAGE_SLEEP_SEC)
+        try:
+            r = abrufen(f'{BASE}/{aw_id}')
+        except requests.RequestException as e:
+            log_line(f'Einzelabruf fuer Mandat {aw_id} gescheitert ({e}), naechster Lauf versucht es wieder')
+            continue
         if r.status_code == 404:
             log_line(f'Mandat {aw_id} fehlt in der Liste und im Einzelabruf')
             continue
-        r.raise_for_status()
+        if not r.ok:
+            log_line(f'Einzelabruf fuer Mandat {aw_id} gescheitert (HTTP {r.status_code}), '
+                     'naechster Lauf versucht es wieder')
+            continue
         ende = datum_oder_none((r.json().get('data') or {}).get('end_date'))
         if ende is None:
             log_line(f'Mandat {aw_id} fehlt in der Liste, hat aber kein end_date')
         else:
             cur.execute('UPDATE abgeordnete SET mandat_bis = %s WHERE aw_id = %s', (ende, aw_id))
             nachgetragen += 1
-        time.sleep(PAGE_SLEEP_SEC)
     return nachgetragen
 
 

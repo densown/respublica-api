@@ -177,9 +177,9 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 04:00 | `gii_sync.py` | Metadaten von gesetze-im-internet.de (`gii-toc.xml`, `xml.zip`) nach `gesetze` (Vorschlag: `config/gesetze-gii-sync.cron.fragment` nach `/etc/cron.d/` kopieren) |
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
-| 05:55 | `fetch_abgeordnete.py` | Mandate WP 161 → `abgeordnete` (Nachrücker, Fraktionswechsel; `mandat_bis` für Ausgeschiedene per Einzelabruf, weil sie aus der Liste fallen; Fragment: `config/fetch-abgeordnete.cron.fragment`) |
+| 05:55 | `fetch_abgeordnete.py` | Mandate WP 161 → `abgeordnete` (Nachrücker, Fraktionswechsel; `mandat_bis` für Ausgeschiedene per Einzelabruf, weil sie aus der Liste fallen; wiederholt bei 429; Fragment: `config/fetch-abgeordnete.cron.fragment`) |
 | 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen`, Beschreibung, Links und Ergebnis → `abstimmung_details` (wiederholt bei 429) |
-| 06:12 | `fetch_votes.py` | Einzelstimmen nur für Abstimmungen ohne Einträge in `votes` (`--all` lädt alle neu; Fragment: `config/fetch-votes.cron.fragment`) |
+| 06:12 | `fetch_votes.py` | Einzelstimmen nur für Abstimmungen ohne Einträge in `votes`; wartet, bis `fetch_abstimmungen.py` fertig ist, wiederholt bei 429 (`--all` lädt alle neu; Fragment: `config/fetch-votes.cron.fragment`) |
 | 06:15 | `fetch_bgbl.py` | BGBl-Aktualitätendienst → `bgbl_referenz` an `aenderungen` |
 | 06:20 | `fetch_lobbyregister.py` | Lobbyregister-Import (`sucheDetailJson`) → `lobbyregister` |
 | 06:25 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |
@@ -210,7 +210,8 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 |-------|--------|
 | `lib/env.py` | `ROOT` (Projektroot) und `load_env()` (lädt `ROOT/.env`) |
 | `lib/db.py` | `get_db(autocommit=True)` mit Unix-Socket-Fallback (Vorlage `gii_sync.py`), `with_connection()` Contextmanager |
-| `lib/log.py` | `get_logger(name)` (Datei `logs/{name}.log` + stdout), `acquire_lock(name)`/`release_lock(name)` (PID-File), `install_signal_handlers(callback)` |
+| `lib/log.py` | `get_logger(name)` (Datei `logs/{name}.log` + stdout), `acquire_lock(name)`/`release_lock(name)` (PID-File), `laeuft(name)` (hält ein anderer Prozess das Lock?), `install_signal_handlers(callback)` |
+| `lib/aw.py` | Abrufe bei abgeordnetenwatch: `json_abrufen(url, user_agent)` mit bis zu 5 Versuchen bei 429 und 5xx (Retry-After der Quelle, sonst 3, 6, 12, 24 s); `wartezeit()` und `wiederholen_bei()` nutzt auch `fetch_abgeordnete.py` |
 | `lib/groq.py` | `chat_completion(messages, model, max_tokens, temperature)` mit voller Retry-Logik (5 Versuche, 429-Backoff, Anti-Abuse-Erkennung) |
 
 | Datei | Zweck |
@@ -226,10 +227,10 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `gii_initial_import.py` | Erstimport oder Stichprobe (`--limit N`) |
 | `gesetze_mapping_overrides.json` | BJNR zu bestehendem `kuerzel` |
 | `enrich_eu_urteile.py` | EU-Urteile anreichern (EUR-Lex, RDF, SPARQL) |
-| `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete`, inkl. Mandatsdauer und aktueller Fraktion. Wer nicht mehr in der Liste der Wahlperiode steht, bekommt `mandat_bis` aus dem Einzelabruf (nur bei vollständiger Liste, höchstens 30) |
+| `fetch_abgeordnete.py` | Abgeordnete AW-API → `abgeordnete`, inkl. Mandatsdauer und aktueller Fraktion. Wer nicht mehr in der Liste der Wahlperiode steht, bekommt `mandat_bis` aus dem Einzelabruf (nur bei vollständiger Liste, höchstens 30). Wiederholt bei 429; scheitert ein Einzelabruf trotzdem, bleibt das Mandat bis zum nächsten Lauf offen |
 | `fetch_abgeordnete_fotos.py` | Fehlende `foto_url`/`politiker_id` in `abgeordnete` per AW-API nachziehen |
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` und `abstimmung_details` (Einleitungstext ohne HTML; Links mit Drucksachennummer, ohne Seiten von abgeordnetenwatch; Ergebnis aus Ja gegen Nein, bei Beschlussempfehlungen gelten die Stimmen der Empfehlung) |
-| `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes` |
+| `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes`. Wartet, solange `fetch_abstimmungen.py` läuft (PID-Lock `logs/fetch_abstimmungen.pid`, höchstens 30 Minuten), wiederholt bei 429 |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte`; Dokumentdatum in der Zukunft wird durch das Datum aus dem Titel ersetzt |
 | `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |

@@ -64,6 +64,16 @@ def acquire_lock(name: str, logger: logging.Logger | None = None) -> bool:
     return True
 
 
+def laeuft(name: str) -> bool:
+    """Ob ein anderer, noch lebender Prozess das Lock `name` haelt."""
+    try:
+        pid = int(_pid_file(name).read_text().strip())
+        os.kill(pid, 0)  # signal 0 = check ob Prozess existiert
+    except (OSError, ValueError):
+        return False
+    return pid != os.getpid()
+
+
 def release_lock(name: str) -> None:
     """Entfernt das PID-File (nur wenn es zur eigenen PID gehoert)."""
     pid_file = _pid_file(name)
