@@ -4,13 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import sys
 import time
 import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +17,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from lib.log import acquire_lock, release_lock
+from lib import aw
+from lib.log import acquire_lock, laeuft, release_lock
 
 ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = ROOT / "logs" / "fetch_votes.log"
@@ -27,6 +26,12 @@ BASE_URL = "https://www.abgeordnetenwatch.de/api/v2/polls"
 USER_AGENT = "ResPublicaGesetze/1.0 (+https://respublica.media)"
 ALLOWED_VOTES = {"yes", "no", "abstain", "no_show"}
 LOCK_NAME = "fetch_votes"
+# fetch_abstimmungen.py (06:10) lief am 17.10.2026 bis nach 06:15. Wer
+# gleichzeitig bei abgeordnetenwatch abfragt, bekommt 429, und neue
+# Abstimmungen stehen erst danach in abstimmungen.
+WARTEN_AUF = "fetch_abstimmungen"
+WARTEN_TAKT_SEK = 15
+WARTEN_MAX_SEK = 1800
 
 
 CREATE_TABLE_SQL = """
@@ -93,13 +98,21 @@ def connect_db() -> mysql.connector.MySQLConnection:
 
 
 def fetch_json(url: str) -> dict[str, Any]:
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        payload = resp.read().decode("utf-8")
-    return json.loads(payload)
+    """GET mit Wiederholung bei 429 und 5xx (lib/aw.py)."""
+    return aw.json_abrufen(url, USER_AGENT, timeout=60)
+
+
+def warten_auf_abstimmungen() -> None:
+    """Wartet, bis fetch_abstimmungen.py fertig ist, hoechstens WARTEN_MAX_SEK."""
+    gewartet = 0
+    while laeuft(WARTEN_AUF):
+        if gewartet >= WARTEN_MAX_SEK:
+            logging.warning("%s laeuft nach %d s noch, fange trotzdem an.", WARTEN_AUF, gewartet)
+            return
+        if gewartet == 0:
+            logging.info("Warte, bis %s fertig ist.", WARTEN_AUF)
+        time.sleep(WARTEN_TAKT_SEK)
+        gewartet += WARTEN_TAKT_SEK
 
 
 def get_poll_ids(
@@ -242,6 +255,9 @@ def main() -> int:
         return 1
 
     try:
+        # Vor dem Laden der poll_ids, sonst fehlen die neuen Abstimmungen
+        warten_auf_abstimmungen()
+
         # Kurze Initialverbindung: Tabelle sicherstellen + poll_ids laden.
         init_conn = connect_db()
         try:
