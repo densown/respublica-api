@@ -915,3 +915,11 @@ CREATE TABLE IF NOT EXISTS abstimmung_details (
 ALTER TABLE abgeordnete
   ADD COLUMN IF NOT EXISTS mandat_von DATE NULL AFTER typ,
   ADD COLUMN IF NOT EXISTS mandat_bis DATE NULL AFTER mandat_von;
+
+-- Kurztexte je Abstimmung (migrations/020_abstimmung_kurztext.sql)
+ALTER TABLE abstimmung_details
+  ADD COLUMN IF NOT EXISTS kurztext        TEXT        NULL AFTER aw_accepted,
+  ADD COLUMN IF NOT EXISTS kurztext_en     TEXT        NULL AFTER kurztext,
+  ADD COLUMN IF NOT EXISTS kurztext_hash   CHAR(40)    NULL AFTER kurztext_en,
+  ADD COLUMN IF NOT EXISTS kurztext_modell VARCHAR(64) NULL AFTER kurztext_hash,
+  ADD COLUMN IF NOT EXISTS kurztext_am     DATETIME    NULL AFTER kurztext_modell;

@@ -1,0 +1,5 @@
+# Taeglich 06:40 UTC: Kurztext (zwei Saetze DE/EN) fuer Abstimmungen ohne aktuellen Text.
+# Laeuft nach fetch_abstimmungen.py (06:10) und fetch_votes.py (06:12), vor summarize_gesetze_resilient.py (07:00).
+# Hoechstens 30 je Lauf, damit das Groq-Kontingent fuer die anderen Skripte reicht.
+# Installation: Kopie nach /etc/cron.d/kurztexte-abstimmungen und systemctl restart cron
+40 6 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/kurztexte_abstimmungen.py >> /root/apps/gesetze/logs/cron.log 2>&1

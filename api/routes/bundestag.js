@@ -116,7 +116,8 @@ router.get("/abgeordnete", asyncHandler(async (req, res) => {
  * Zur Definition von "Abweichung": verglichen wird nur, wenn die oder der
  * Abgeordnete tatsaechlich abgestimmt hat (ja, nein, enthalten). Nichtteilnahme
  * ist keine inhaltliche Abweichung und bleibt draussen — sonst zaehlten
- * Krankheit und Dienstreise als Aufmuepfigkeit.
+ * Krankheit und Dienstreise als Aufmuepfigkeit. Wer fraktionslos war, hat
+ * keine Fraktionslinie und weicht deshalb auch nicht ab.
  */
 router.get("/abgeordnete/:aw_id/themen", asyncHandler(async (req, res) => {
   const awId = Number.parseInt(req.params.aw_id, 10);
@@ -126,7 +127,7 @@ router.get("/abgeordnete/:aw_id/themen", asyncHandler(async (req, res) => {
   }
 
   const [person] = await getPool().query(
-    `SELECT aw_id, name, fraktion, wahlkreis, foto_url, profil_url
+    `SELECT aw_id, name, fraktion, wahlkreis, foto_url, profil_url, mandat_von, mandat_bis
        FROM abgeordnete WHERE aw_id = ?`,
     [awId],
   );
@@ -143,6 +144,7 @@ router.get("/abgeordnete/:aw_id/themen", asyncHandler(async (req, res) => {
        SELECT poll_id, fraction_label, vote, COUNT(*) AS n
          FROM votes
         WHERE vote IS NOT NULL AND vote <> 'no_show'
+          AND fraction_label NOT LIKE 'fraktionslos%'
         GROUP BY poll_id, fraction_label, vote
      ),
      fraktion_mehrheit AS (
@@ -224,13 +226,24 @@ router.get("/abgeordnete/:aw_id/themen", asyncHandler(async (req, res) => {
       wahlkreis: person[0].wahlkreis,
       foto_url: person[0].foto_url,
       profil_url: person[0].profil_url,
+      mandat_von: formatDate(person[0].mandat_von),
+      mandat_bis: formatDate(person[0].mandat_bis),
     },
     gesamt,
     themen: [...themen.values()].filter((t) => t.abstimmungen > 0),
   });
 }));
 
-/** Abstimmungshistorie eines Abgeordneten (über votes + abstimmungen) */
+/**
+ * Abstimmungshistorie eines Abgeordneten (über votes + abstimmungen).
+ *
+ * fraktion ist die Fraktion zum Zeitpunkt der Abstimmung. fraktion_vote ist
+ * die Mehrheit dieser Fraktion, gezaehlt wie im Themenprofil: nur wer
+ * abgestimmt hat, bei Gleichstand die alphabetisch erste Stimme. null, wenn
+ * aus der Fraktion niemand abgestimmt hat oder die Person fraktionslos war;
+ * Fraktionslose haben keine gemeinsame Linie. Daraus liest das Profil, wo
+ * jemand anders gestimmt hat als die eigenen Leute.
+ */
 router.get("/abgeordnete/:aw_id/votes", asyncHandler(async (req, res) => {
   const awId = Number.parseInt(req.params.aw_id, 10);
   if (!Number.isFinite(awId)) {
@@ -238,12 +251,28 @@ router.get("/abgeordnete/:aw_id/votes", asyncHandler(async (req, res) => {
     return;
   }
   const [rows] = await getPool().query(
-    `SELECT v.poll_id, v.vote, a.poll_titel, a.poll_datum
-     FROM votes v
-     JOIN abstimmungen a ON a.poll_id = v.poll_id
-     WHERE v.mandate_id = ?
-     GROUP BY v.poll_id, v.vote, a.poll_titel, a.poll_datum
-     ORDER BY a.poll_datum DESC`,
+    `WITH meine AS (
+       SELECT poll_id, vote, fraction_label FROM votes WHERE mandate_id = ?
+     ),
+     fraktion_votes AS (
+       SELECT v.poll_id, v.vote, COUNT(*) AS n
+         FROM votes v
+         JOIN meine m ON m.poll_id = v.poll_id AND m.fraction_label = v.fraction_label
+        WHERE v.vote IS NOT NULL AND v.vote <> 'no_show'
+          AND v.fraction_label NOT LIKE 'fraktionslos%'
+        GROUP BY v.poll_id, v.vote
+     ),
+     fraktion_mehrheit AS (
+       SELECT poll_id, vote,
+              ROW_NUMBER() OVER (PARTITION BY poll_id ORDER BY n DESC, vote ASC) AS rang
+         FROM fraktion_votes
+     )
+     SELECT m.poll_id, m.vote, m.fraction_label, a.poll_titel, a.poll_datum, fm.vote AS fraktion_vote
+       FROM meine m
+       JOIN (SELECT poll_id, MAX(poll_titel) AS poll_titel, MAX(poll_datum) AS poll_datum
+               FROM abstimmungen GROUP BY poll_id) a ON a.poll_id = m.poll_id
+       LEFT JOIN fraktion_mehrheit fm ON fm.poll_id = m.poll_id AND fm.rang = 1
+      ORDER BY a.poll_datum DESC, m.poll_id DESC`,
     [awId]
   );
   res.json(
@@ -252,38 +281,97 @@ router.get("/abgeordnete/:aw_id/votes", asyncHandler(async (req, res) => {
       vote: r.vote,
       poll_titel: r.poll_titel,
       poll_datum: formatDate(r.poll_datum),
+      fraktion: r.fraction_label ?? null,
+      fraktion_vote: r.fraktion_vote ?? null,
     }))
   );
 }));
 
+/**
+ * Kurztexte nur, solange sie zur aktuellen Beschreibung gehoeren: aendert
+ * abgeordnetenwatch die Beschreibung, bleibt der alte Text weg, bis
+ * scripts/kurztexte_abstimmungen.py ihn neu geschrieben hat.
+ */
+const KURZTEXT_SPALTEN = `
+  CASE WHEN kurztext_hash = SHA1(intro) THEN kurztext END AS kurztext,
+  CASE WHEN kurztext_hash = SHA1(intro) THEN kurztext_en END AS kurztext_en`;
+
+/**
+ * Alle namentlichen Abstimmungen, neueste zuerst, mit Ergebnis und Stimmen je
+ * Fraktion fuer die Karten der Bundestag-Uebersicht. angenommen und die
+ * Kurztexte kommen aus abstimmung_details und sind null, wo dort nichts steht.
+ */
 router.get("/bundestag/abstimmungen", asyncHandler(async (_req, res) => {
-  const [rows] = await getPool().query(
-    `SELECT DISTINCT poll_id, poll_titel, poll_datum
-     FROM abstimmungen
-     ORDER BY poll_datum DESC`
-  );
-  const out = rows.map((r) => ({
-    poll_id: r.poll_id,
-    poll_titel: r.poll_titel,
-    poll_datum: formatDate(r.poll_datum),
-  }));
-  res.json(out);
+  const [[zeilen], [details]] = await Promise.all([
+    getPool().query(
+      `SELECT poll_id, poll_titel, poll_datum, partei, ja, nein, enthalten, abwesend
+       FROM abstimmungen
+       ORDER BY poll_datum DESC, poll_id DESC, partei`
+    ),
+    getPool().query(
+      `SELECT poll_id, angenommen, ${KURZTEXT_SPALTEN}
+       FROM abstimmung_details`
+    ),
+  ]);
+  const zuDetails = new Map(details.map((d) => [Number(d.poll_id), d]));
+  const polls = new Map();
+  for (const r of zeilen) {
+    let p = polls.get(r.poll_id);
+    if (!p) {
+      const d = zuDetails.get(Number(r.poll_id));
+      p = {
+        poll_id: r.poll_id,
+        poll_titel: r.poll_titel,
+        poll_datum: formatDate(r.poll_datum),
+        ergebnis: { ja_gesamt: 0, nein_gesamt: 0, enthalten_gesamt: 0, abwesend_gesamt: 0 },
+        fraktionen: [],
+        angenommen: d?.angenommen == null ? null : Boolean(d.angenommen),
+        kurztext: d?.kurztext || null,
+        kurztext_en: d?.kurztext_en || null,
+      };
+      polls.set(r.poll_id, p);
+    }
+    const f = {
+      partei: r.partei,
+      ja: Number(r.ja) || 0,
+      nein: Number(r.nein) || 0,
+      enthalten: Number(r.enthalten) || 0,
+      abwesend: Number(r.abwesend) || 0,
+    };
+    p.fraktionen.push(f);
+    p.ergebnis.ja_gesamt += f.ja;
+    p.ergebnis.nein_gesamt += f.nein;
+    p.ergebnis.enthalten_gesamt += f.enthalten;
+    p.ergebnis.abwesend_gesamt += f.abwesend;
+  }
+  res.json([...polls.values()]);
 }));
 
 /**
  * Beschreibung, Quellen und Ergebnis laut abgeordnetenwatch (Migration 019,
- * befuellt von scripts/fetch_abstimmungen.py). Ohne Zeile bleiben die Felder
- * leer, die Seite rechnet das Ergebnis dann aus den Stimmen.
+ * befuellt von scripts/fetch_abstimmungen.py), dazu die automatischen
+ * Kurztexte (Migration 020, scripts/kurztexte_abstimmungen.py). Ohne Zeile
+ * bleiben die Felder leer, die Seite rechnet das Ergebnis dann aus den
+ * Stimmen.
  */
 async function abstimmungDetails(pollId) {
   const [rows] = await getPool().query(
-    `SELECT intro, links, quelle_url, angenommen
+    `SELECT intro, links, quelle_url, angenommen, ${KURZTEXT_SPALTEN}
      FROM abstimmung_details
      WHERE poll_id = ?`,
     [pollId]
   );
   const d = rows[0];
-  if (!d) return { intro: null, links: [], quelle_url: null, angenommen: null };
+  if (!d) {
+    return {
+      intro: null,
+      links: [],
+      quelle_url: null,
+      angenommen: null,
+      kurztext: null,
+      kurztext_en: null,
+    };
+  }
   let links = [];
   try {
     const l = typeof d.links === "string" ? JSON.parse(d.links) : d.links;
@@ -296,6 +384,8 @@ async function abstimmungDetails(pollId) {
     links,
     quelle_url: d.quelle_url || null,
     angenommen: d.angenommen == null ? null : Boolean(d.angenommen),
+    kurztext: d.kurztext || null,
+    kurztext_en: d.kurztext_en || null,
   };
 }
 

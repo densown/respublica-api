@@ -35,7 +35,7 @@ Alle Router werden per `app.use("/api", router)` gemountet; Routen definieren Pf
 |---------|------------------------------|
 | `abgeordnete` | 629 |
 | `abstimmungen` | 276 |
-| `abstimmung_details` | neu (Migration 019: Beschreibung, Links und Ergebnis je Abstimmung, aus `fetch_abstimmungen.py`) |
+| `abstimmung_details` | neu (Migration 019: Beschreibung, Links und Ergebnis je Abstimmung, aus `fetch_abstimmungen.py`; Migration 020: Kurztext DE/EN aus `kurztexte_abstimmungen.py`, `kurztext_hash` = SHA1 der Beschreibung, aus der er entstand) |
 | `aenderungen` | 262 |
 | `eu_rechtsakte` | 591 |
 | `eu_rechtsakt_gesetze` | 6 |
@@ -113,11 +113,12 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/bundestag/sitzverteilung` | Feste Sitzverteilung WP21 |
 | GET | `/api/bundestag/abgeordnete` | Alle Abgeordneten |
 | GET | `/api/bundestag/abgeordnete/:id` | Ein Abgeordneter (`aw_id`) |
-| GET | `/api/bundestag/abstimmungen` | Abstimmungen Übersicht |
-| GET | `/api/bundestag/abstimmungen/:pollId` | Abstimmung nach pollId, mit `intro` (Absätze durch Leerzeile), `links` (`titel`, `url`, `dokument`), `quelle_url` und `angenommen` (mehr Ja als Nein; der Text der Quelle zählt nur bei verfehlter qualifizierter Mehrheit oder solange Stimmen fehlen, dann `null` wenn unklar) |
+| GET | `/api/bundestag/abstimmungen` | Alle Abstimmungen, neueste zuerst, mit `ergebnis` (Summen), `fraktionen` (Ja, Nein, Enthalten, Abwesend je Fraktion), `angenommen`, `kurztext`, `kurztext_en` |
+| GET | `/api/bundestag/abstimmungen/:pollId` | Abstimmung nach pollId, mit `intro` (Absätze durch Leerzeile), `links` (`titel`, `url`, `dokument`), `quelle_url` und `angenommen` (mehr Ja als Nein; der Text der Quelle zählt nur bei verfehlter qualifizierter Mehrheit oder solange Stimmen fehlen, dann `null` wenn unklar), `kurztext` und `kurztext_en` (automatisch, `null` solange keiner zur aktuellen Beschreibung passt) |
 | GET | `/api/bundestag/poll-votes/:poll_id` | Einzelstimmen einer Abstimmung (`mandate_id` → `vote`, `fraction_label` zum Zeitpunkt der Abstimmung) |
 | GET | `/api/abgeordnete` | Heutige Abgeordnete (id, aw_id, Name, Fraktion, Wahlkreis, Foto, Profil, `mandat_von`, `mandat_bis`); `?alle=1` auch Ausgeschiedene |
-| GET | `/api/abgeordnete/:aw_id/votes` | Abstimmungshistorie eines Abgeordneten |
+| GET | `/api/abgeordnete/:aw_id/votes` | Abstimmungshistorie eines Abgeordneten, mit `fraktion` (zum Zeitpunkt der Abstimmung) und `fraktion_vote` (Mehrheit dieser Fraktion, `null` bei Fraktionslosen) |
+| GET | `/api/abgeordnete/:aw_id/themen` | Bilanz und Themenprofil eines Abgeordneten (Person mit `mandat_von`, `mandat_bis`) |
 | GET | `/api/urteile` | Urteile Liste |
 | GET | `/api/urteile/:id` | Urteil Detail |
 | GET | `/api/eu-recht/stats` | Statistik EU-Rechtsakte |
@@ -185,6 +186,7 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 06:25 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |
 | 06:30 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
 | 06:35 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
+| 06:40 | `kurztexte_abstimmungen.py` | Zwei Sätze DE/EN je Abstimmung aus Titel und Beschreibung (Groq gpt-oss-120b, höchstens 30 je Lauf, Prüfung auf Ergebnis und Wertung; Fragment: `config/kurztexte-abstimmungen.cron.fragment`) |
 | 06:45 | `match_abstimmungen.py` | Verknüpfung Abstimmungen mit `aenderungen` (DIP/API) |
 | 06:50 | `match_lobby_gesetze.py` | Verknüpfung Lobbyregister ↔ `gesetze` |
 | 06:55 | `match_urteile_gesetze.py` | Verknüpfung Urteile ↔ `gesetze` |
@@ -231,6 +233,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fetch_abgeordnete_fotos.py` | Fehlende `foto_url`/`politiker_id` in `abgeordnete` per AW-API nachziehen |
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` und `abstimmung_details` (Einleitungstext ohne HTML; Links mit Drucksachennummer, ohne Seiten von abgeordnetenwatch; Ergebnis aus Ja gegen Nein, bei Beschlussempfehlungen gelten die Stimmen der Empfehlung) |
 | `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes`. Wartet, solange `fetch_abstimmungen.py` läuft (PID-Lock `logs/fetch_abstimmungen.pid`, höchstens 30 Minuten), wiederholt bei 429 |
+| `kurztexte_abstimmungen.py` | Kurztext je Abstimmung → `abstimmung_details.kurztext`/`kurztext_en` (Groq). Schreibt neu, wenn sich die Beschreibung ändert; fällt ein Text zweimal durch die Prüfung, bleibt er leer (`--fehlgeschlagene` versucht es nochmal, `--poll ID` schreibt eine neu, `--probelauf` schreibt nichts) |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte`; Dokumentdatum in der Zukunft wird durch das Datum aus dem Titel ersetzt |
 | `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |
