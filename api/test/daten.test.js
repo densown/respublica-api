@@ -78,27 +78,40 @@ test.before(async () => {
      (903, 'TEST003', 'C', 0, 1000000, ?)`,
     [foi("FOI_X", "FOI_Y"), foi("FOI_X"), foi("FOI_X")],
   );
-  // Abstimmung 990001 mit Beschreibung und Einzelstimmen, 990002 ohne
+  // Abstimmung 990001 mit Beschreibung und Einzelstimmen, 990002 ohne,
+  // 990003 mit einem Kurztext zu einer inzwischen geaenderten Beschreibung
   await db.query(
     `INSERT INTO abstimmungen (partei, ja, nein, enthalten, abwesend, poll_id, poll_titel, poll_datum) VALUES
      ('SPD (Bundestag 2025 - 2029)', 1, 0, 0, 0, 990001, 'Testabstimmung', '2026-10-08'),
      ('AfD (Bundestag 2025 - 2029)', 0, 2, 0, 0, 990001, 'Testabstimmung', '2026-10-08'),
-     ('SPD (Bundestag 2025 - 2029)', 1, 0, 0, 0, 990002, 'Ohne Beschreibung', '2026-10-09')`,
+     ('SPD (Bundestag 2025 - 2029)', 1, 0, 0, 0, 990002, 'Ohne Beschreibung', '2026-10-09'),
+     ('SPD (Bundestag 2025 - 2029)', 1, 0, 0, 0, 990003, 'Beschreibung geaendert', '2026-10-07')`,
   );
+  const intro = "Erster Absatz.\n\nDer Antrag wurde abgelehnt.";
   await db.query(
-    `INSERT INTO abstimmung_details (poll_id, intro, links, quelle_url, angenommen, aw_accepted)
-     VALUES (990001, ?, ?, 'https://www.abgeordnetenwatch.de/bundestag/21/abstimmungen/test', 0, 1)`,
+    `INSERT INTO abstimmung_details
+       (poll_id, intro, links, quelle_url, angenommen, aw_accepted, kurztext, kurztext_en, kurztext_hash)
+     VALUES (990001, ?, ?, 'https://www.abgeordnetenwatch.de/bundestag/21/abstimmungen/test', 0, 1,
+             'Kurz auf Deutsch.', 'Short in English.', SHA1(?)),
+            (990003, 'Neue Beschreibung.', NULL, NULL, 1, 1,
+             'Veraltet.', 'Outdated.', SHA1('Alte Beschreibung.'))`,
     [
-      "Erster Absatz.\n\nDer Antrag wurde abgelehnt.",
+      intro,
       JSON.stringify([
         { titel: "Antrag", url: "https://dserver.bundestag.de/btd/21/012/2101234.pdf", dokument: "Drucksache 21/1234" },
       ]),
+      intro,
     ],
   );
   await db.query(
     `INSERT INTO votes (vote_id, poll_id, mandate_id, abgeordneter_name, vote, fraction_id, fraction_label) VALUES
      (99000101, 990001, 99001, 'Erika Muster', 'yes', 1, 'SPD (Bundestag 2025 - 2029)'),
-     (99000102, 990001, 99002, 'Max Muster', 'no', 2, 'AfD (Bundestag 2025 - 2029)')`,
+     (99000102, 990001, 99002, 'Max Muster', 'no', 2, 'AfD (Bundestag 2025 - 2029)'),
+     (99000103, 990001, 99003, 'Nora Nach', 'no', 1, 'SPD (Bundestag 2025 - 2029)'),
+     (99000104, 990001, 99004, 'Paul Partei', 'yes', 1, 'SPD (Bundestag 2025 - 2029)'),
+     (99000105, 990001, 99005, 'Fritz Los', 'no', 3, 'fraktionslos (Bundestag 2025 - 2029)'),
+     (99000106, 990001, 99006, 'Frida Los', 'yes', 3, 'fraktionslos (Bundestag 2025 - 2029)'),
+     (99000107, 990001, 99007, 'Gerda Los', 'yes', 3, 'fraktionslos (Bundestag 2025 - 2029)')`,
   );
   // Abgeordnete: im Amt, ausgeschieden, nachgerueckt
   await db.query(
@@ -196,6 +209,8 @@ test("Abstimmung mit Beschreibung, Quellen und Ergebnis laut Quelle", { skip }, 
   ]);
   assert.strictEqual(res.body.quelle_url, "https://www.abgeordnetenwatch.de/bundestag/21/abstimmungen/test");
   assert.strictEqual(res.body.angenommen, false);
+  assert.strictEqual(res.body.kurztext, "Kurz auf Deutsch.");
+  assert.strictEqual(res.body.kurztext_en, "Short in English.");
 });
 
 test("Abstimmung ohne Beschreibung: Felder leer, Ergebnis offen", { skip }, async () => {
@@ -205,6 +220,72 @@ test("Abstimmung ohne Beschreibung: Felder leer, Ergebnis offen", { skip }, asyn
   assert.deepStrictEqual(res.body.links, []);
   assert.strictEqual(res.body.quelle_url, null);
   assert.strictEqual(res.body.angenommen, null);
+  assert.strictEqual(res.body.kurztext, null);
+});
+
+test("Abstimmungsliste mit Ergebnis, Fraktionen und Kurztext", { skip }, async () => {
+  const res = await agent.get("/api/bundestag/abstimmungen");
+  assert.strictEqual(res.status, 200);
+  const testPolls = res.body.filter((p) => p.poll_id === 990001 || p.poll_id === 990002);
+  // neueste zuerst
+  assert.deepStrictEqual(testPolls.map((p) => p.poll_id), [990002, 990001]);
+  const [ohne, mit] = testPolls;
+  assert.deepStrictEqual(mit.ergebnis, { ja_gesamt: 1, nein_gesamt: 2, enthalten_gesamt: 0, abwesend_gesamt: 0 });
+  assert.deepStrictEqual(
+    mit.fraktionen.map((f) => [f.partei, f.ja, f.nein]),
+    [["AfD (Bundestag 2025 - 2029)", 0, 2], ["SPD (Bundestag 2025 - 2029)", 1, 0]],
+  );
+  assert.strictEqual(mit.angenommen, false);
+  assert.strictEqual(mit.kurztext, "Kurz auf Deutsch.");
+  assert.strictEqual(mit.kurztext_en, "Short in English.");
+  assert.strictEqual(ohne.poll_titel, "Ohne Beschreibung");
+  assert.strictEqual(ohne.poll_datum, "2026-10-09");
+  assert.strictEqual(ohne.angenommen, null);
+  assert.strictEqual(ohne.kurztext, null);
+  // Kurztext zu einer alten Beschreibung bleibt weg, bis er neu geschrieben ist
+  const veraltet = res.body.find((p) => p.poll_id === 990003);
+  assert.strictEqual(veraltet.angenommen, true);
+  assert.strictEqual(veraltet.kurztext, null);
+  assert.strictEqual(veraltet.kurztext_en, null);
+});
+
+test("Abstimmung mit geaenderter Beschreibung zeigt den alten Kurztext nicht", { skip }, async () => {
+  const res = await agent.get("/api/bundestag/abstimmungen/990003");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.intro, "Neue Beschreibung.");
+  assert.strictEqual(res.body.kurztext, null);
+  assert.strictEqual(res.body.kurztext_en, null);
+});
+
+test("Abstimmungsverlauf mit Mehrheit der eigenen Fraktion", { skip }, async () => {
+  const erika = await agent.get("/api/abgeordnete/99001/votes");
+  assert.strictEqual(erika.status, 200);
+  assert.deepStrictEqual(erika.body, [
+    {
+      poll_id: 990001,
+      vote: "yes",
+      poll_titel: "Testabstimmung",
+      poll_datum: "2026-10-08",
+      fraktion: "SPD (Bundestag 2025 - 2029)",
+      fraktion_vote: "yes",
+    },
+  ]);
+  // SPD stimmt 2:1 mit Ja, Nora Nach mit Nein
+  const nora = await agent.get("/api/abgeordnete/99003/votes");
+  assert.deepStrictEqual(nora.body.map((v) => [v.vote, v.fraktion_vote]), [["no", "yes"]]);
+  // Fraktionslose stimmen 2:1 mit Ja, haben aber keine gemeinsame Linie
+  const fritz = await agent.get("/api/abgeordnete/99005/votes");
+  assert.deepStrictEqual(fritz.body.map((v) => [v.vote, v.fraktion, v.fraktion_vote]), [
+    ["no", "fraktionslos (Bundestag 2025 - 2029)", null],
+  ]);
+});
+
+test("Themenprofil nennt das Mandatsende", { skip }, async () => {
+  const res = await agent.get("/api/abgeordnete/99002/themen");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.abgeordnete.mandat_bis, "2026-08-31");
+  assert.strictEqual(res.body.abgeordnete.mandat_von, null);
+  assert.strictEqual(res.body.gesamt.nein, 1);
 });
 
 test("Einzelstimmen mit Fraktion zum Zeitpunkt der Abstimmung", { skip }, async () => {
