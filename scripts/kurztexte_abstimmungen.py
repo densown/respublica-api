@@ -5,8 +5,8 @@ Der Text steht im Dashboard in der Abstimmungsliste und auf dem Bild zum
 Teilen direkt unter dem Titel. Luca hat am 19.10.2026 entschieden, dass er
 ohne Freigabe erscheint; die Seite kennzeichnet ihn als automatisch
 zusammengefasst. Grundlage sind nur Titel und Beschreibung von
-abgeordnetenwatch (abstimmung_details.intro), das Ergebnis bekommt das
-Modell nicht zu sehen.
+abgeordnetenwatch (abstimmung_details.intro). Saetze mit dem Ergebnis
+nimmt ohne_ergebnis() vorher heraus, das Modell bekommt es nicht zu sehen.
 
 kurztext_hash ist SHA1 der Beschreibung, aus der der Text entstand. Aendert
 sich die Beschreibung, schreibt der naechste Lauf den Text neu, und die API
@@ -68,21 +68,32 @@ Titel der Abstimmung: {titel}
 
 Beschreibung von abgeordnetenwatch.de:
 {intro}
-
+{hinweis}
 Regeln:
 - Genau zwei vollständige Sätze, zusammen höchstens 260 Zeichen. Lies jeden Satz noch einmal: Er muss grammatisch vollständig sein.
-- Satz 1 beginnt mit dem Antragsteller (Bundesregierung, eine Fraktion oder mehrere) und sagt, was er wollte. Nie mit „Der Bundestag“ beginnen.
-- Satz 2: das wichtigste Detail oder die Begründung, als Sicht der Antragsteller gekennzeichnet.
-- Nur wenn Titel oder Beschreibung ausdrücklich eine Beschlussempfehlung nennen, sag im zweiten Satz, was der Ausschuss empfahl, etwa den Antrag abzulehnen.
+- Satz 1 sagt, wer was wollte. Den Antragsteller nimmst du nur aus der Beschreibung: die Bundesregierung, eine oder mehrere Fraktionen oder eine Gruppe von Abgeordneten. Nennt die Beschreibung keinen, beginne mit dem Vorhaben selbst, etwa „Der Gesetzentwurf sollte …“. Nie mit „Der Bundestag“ beginnen.
+- Bei einem Gesetzentwurf heißt es „legte einen Gesetzentwurf vor“ oder „wollte“, nicht „beantragte“.
+- Satz 2: ein konkretes Detail oder die Begründung, als Sicht der Antragsteller gekennzeichnet. Eine Zahl nur in dem Zusammenhang, in dem sie in der Beschreibung steht.
+- Nur wenn Titel oder Beschreibung ausdrücklich eine Beschlussempfehlung nennen, darf Satz 2 sagen, was der Ausschuss empfahl, etwa den Antrag abzulehnen.
 - Nenne nicht, wie die Abstimmung ausging, und keine Stimmenzahlen. Die Wörter beschloss, beschlossen, verabschiedet, angenommen, abgelehnt, lehnte und stimmte kommen nicht vor.
 - Sachlich und neutral, keine Wertung, keine Wörter wie umstritten oder wichtig.
-- Präteritum. Parteien so: Union, SPD, AfD, Grüne, Linke.
+- Präteritum. Parteien so: die Union, die SPD, die AfD, die Grünen, die Linke. Also „Die Grünen wollten …“, nie „Die Fraktion Grüne“ oder „BÜNDNIS 90/DIE GRÜNEN“. Einzahl und Mehrzahl passen in beiden Sätzen zusammen.
 - Steht in der Beschreibung ein Satz, der nicht zum Titel passt, lass ihn weg.
 - Nur Fakten aus Titel und Beschreibung, nichts dazuerfinden.
 
-Dazu dieselben zwei Sätze auf Englisch für internationale Leser, Parteien so: CDU/CSU, SPD, AfD, the Greens, the Left. Auch dort nicht mit „The Bundestag“ beginnen und kein approved, adopted, passed, rejected oder voted.
+Dazu dieselben zwei Sätze auf Englisch für internationale Leser: inhaltlich genau dasselbe wie auf Deutsch, nichts weglassen und nichts ergänzen. Parteien so: CDU/CSU, SPD, AfD, the Greens, the Left. Auch dort nicht mit „The Bundestag“ beginnen und kein approved, adopted, passed, rejected oder voted.
 
 Antworte nur mit JSON, ohne Markdown: {{"de": "...", "en": "..."}}"""
+
+# Titel wie "Beschlussempfehlung zu drittem Antrag: Organisierte
+# Steuerhinterziehung wie bisher bekaempfen" beschreiben, wofuer ein Ja stand.
+# Im Probelauf vom 19.10. wurde daraus "Die Grünen wollten ... wie bisher
+# bekämpfen", also das Gegenteil des Antrags.
+HINWEIS_ABLEHNUNG = (
+    "\nAchtung: Der Ausschuss empfahl, den Antrag abzulehnen. Der Titel beschreibt deshalb, "
+    "wofür ein Ja stand, nicht, was der Antragsteller wollte. Was er wollte, steht in der "
+    "Beschreibung, meist das Gegenteil des Titels.\n"
+)
 
 NOCHMAL = "\n\nDein letzter Vorschlag passte nicht: {grund}. Schreib die beiden Sätze neu und halte dich an alle Regeln."
 
@@ -100,14 +111,49 @@ VERBOTEN_EN = re.compile(
 START_DE = re.compile(r"^\s*(Der Bundestag|Das Parlament)\b")
 START_EN = re.compile(r"^\s*(The Bundestag|Parliament|The German Bundestag)\b")
 
+# Saetze der Beschreibung, die das Ergebnis nennen. Bei 6733 haengt
+# ausserdem ein Satz aus einer anderen Abstimmung an ("Damit wurde die
+# weitere Planung der Bahnstrecke beschlossen."), auch der faellt so weg.
+ERGEBNIS_SATZ = re.compile(
+    r"Ja-Stimmen|Nein-Stimmen|Enthaltung|\bmit den Stimmen\b|\bstimmten?\b|\benthielten?\b|^Damit wurden?\b",
+    re.IGNORECASE,
+)
+SATZGRENZE = re.compile(r"(?<=[.!?])\s+(?=[A-ZÄÖÜ„])")
+ZAHL = re.compile(r"\d+(?:[.,]\d+)*")
+BUNDESREGIERUNG_EN = re.compile(r"\b(federal|German) government\b", re.IGNORECASE)
+FRAKTION_STATT_PARTEI = re.compile(
+    r"\bFraktion(en)? (der |die |Die )?(Grüne|Linke|SPD|AfD|Union|CDU)|BÜNDNIS|Bündnis 90"
+)
+TITEL_UEBERNOMMEN_DE = re.compile(r"wie bisher|beibehalten|weiterhin|\berhalten\b", re.IGNORECASE)
+TITEL_UEBERNOMMEN_EN = re.compile(r"as before|\b(retain|keep|maintain|preserve)", re.IGNORECASE)
+
 
 def intro_hash(intro: str) -> str:
     """Gleich wie SHA1(intro) in MariaDB (utf8mb4 hasht die UTF-8-Bytes)."""
     return hashlib.sha1(intro.encode("utf-8")).hexdigest()
 
 
+def ohne_ergebnis(intro: str) -> str:
+    """Beschreibung ohne die Saetze mit Stimmenzahlen und Ergebnis."""
+    absaetze = []
+    for absatz in re.split(r"\n\s*\n", intro.strip()):
+        saetze = [s for s in SATZGRENZE.split(absatz.strip()) if s and not ERGEBNIS_SATZ.search(s)]
+        if saetze:
+            absaetze.append(" ".join(saetze))
+    return "\n\n".join(absaetze) or intro.strip()
+
+
+def ablehnung_empfohlen(titel: str, intro: str) -> bool:
+    return titel.strip().startswith("Beschlussempfehlung") and bool(re.search(r"Ablehnung|abzulehnen", intro))
+
+
+def _zahlen(text: str) -> set[str]:
+    return {z.replace(".", "").replace(",", "") for z in ZAHL.findall(text)}
+
+
 def prompt_bauen(titel: str, intro: str, grund: str | None = None) -> str:
-    text = PROMPT.format(titel=titel.strip(), intro=intro.strip())
+    hinweis = HINWEIS_ABLEHNUNG if ablehnung_empfohlen(titel, intro) else ""
+    text = PROMPT.format(titel=titel.strip(), intro=intro.strip(), hinweis=hinweis)
     if grund:
         text += NOCHMAL.format(grund=grund)
     return text
@@ -131,8 +177,12 @@ def antwort_lesen(roh: str) -> dict[str, str] | None:
     return {"de": " ".join(de.split()), "en": " ".join(en.split())}
 
 
-def pruefen(texte: dict[str, str]) -> str | None:
-    """Grund, warum der Vorschlag nicht taugt, oder None."""
+def pruefen(texte: dict[str, str], titel: str = "", intro: str = "") -> str | None:
+    """Grund, warum der Vorschlag nicht taugt, oder None.
+
+    titel und intro (ohne Ergebnis) braucht nur der inhaltliche Teil: wer
+    der Antragsteller ist, welche Zahlen vorkommen duerfen.
+    """
     for sprache, text in texte.items():
         if not text:
             return f"{sprache} ist leer"
@@ -147,6 +197,25 @@ def pruefen(texte: dict[str, str]) -> str | None:
     treffer = VERBOTEN_DE.search(texte["de"]) or VERBOTEN_EN.search(texte["en"])
     if treffer:
         return f"„{treffer.group(0)}“ nennt das Ergebnis oder wertet"
+    if not intro:
+        return None
+    de, en = texte["de"], texte["en"]
+    if "Bundesregierung" not in intro and ("Bundesregierung" in de or BUNDESREGIERUNG_EN.search(en)):
+        return "die Bundesregierung steht in der Beschreibung nicht als Antragstellerin"
+    if "Gesetzentwurf" in titel and re.search(r"\bbeantragte", de):
+        return "bei einem Gesetzentwurf heißt es nicht „beantragte“"
+    treffer = FRAKTION_STATT_PARTEI.search(de)
+    if treffer:
+        return f"„{treffer.group(0)}“ statt der vorgegebenen Parteinamen"
+    if ablehnung_empfohlen(titel, intro):
+        treffer = TITEL_UEBERNOMMEN_DE.search(SATZGRENZE.split(de)[0]) or TITEL_UEBERNOMMEN_EN.search(
+            SATZGRENZE.split(en)[0]
+        )
+        if treffer:
+            return f"Satz 1 übernimmt mit „{treffer.group(0)}“ den Titel statt des Antrags"
+    fremd = sorted((_zahlen(de) | _zahlen(en)) - _zahlen(intro))
+    if fremd:
+        return f"die Zahl {fremd[0]} steht so nicht in der Beschreibung"
     return None
 
 
@@ -156,18 +225,19 @@ def erzeugen(titel: str, intro: str) -> tuple[dict[str, str] | None, str | None]
     GroqError geht durch: Kontingent weg oder Groq nicht erreichbar ist
     kein Fehler des Textes, die Abstimmung bleibt offen.
     """
+    quelle = ohne_ergebnis(intro)
     grund: str | None = None
     for versuch in range(2):
         if versuch:
             time.sleep(PAUSE_SEC)
         roh = chat_completion(
-            [{"role": "user", "content": prompt_bauen(titel, intro, grund)}],
+            [{"role": "user", "content": prompt_bauen(titel, quelle, grund)}],
             model=MODELL,
             max_tokens=500,
             temperature=0.2,
         )
         texte = antwort_lesen(roh)
-        grund = "die Antwort war kein JSON mit de und en" if texte is None else pruefen(texte)
+        grund = "die Antwort war kein JSON mit de und en" if texte is None else pruefen(texte, titel, quelle)
         if grund is None:
             return texte, None
     return None, grund
