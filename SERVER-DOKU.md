@@ -186,7 +186,7 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 06:25 | `fetch_urteile.py` | RSS Bundesgerichte → `urteile` |
 | 06:30 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte` |
 | 06:35 | `fetch_eu_urteile.py` | EU-Urteile (SPARQL/Scraping) → `eu_urteile` |
-| 06:40 | `kurztexte_abstimmungen.py` | Zwei Sätze DE/EN je Abstimmung aus Titel und Beschreibung (Groq gpt-oss-120b, höchstens 30 je Lauf, Prüfung auf Ergebnis und Wertung; Fragment: `config/kurztexte-abstimmungen.cron.fragment`) |
+| 06:40 | `kurztexte_abstimmungen.py` | Zwei Sätze DE/EN je Abstimmung aus Titel und Beschreibung (Claude-CLI im Max-Plan, höchstens 20 je Lauf in 2 Stapeln, höchstens 4 CLI-Aufrufe; Prüfung auf Ergebnis, Wertung, Antragsteller und Zahlen; Fragment: `config/kurztexte-abstimmungen.cron.fragment`) |
 | 06:45 | `match_abstimmungen.py` | Verknüpfung Abstimmungen mit `aenderungen` (DIP/API) |
 | 06:50 | `match_lobby_gesetze.py` | Verknüpfung Lobbyregister ↔ `gesetze` |
 | 06:55 | `match_urteile_gesetze.py` | Verknüpfung Urteile ↔ `gesetze` |
@@ -233,7 +233,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fetch_abgeordnete_fotos.py` | Fehlende `foto_url`/`politiker_id` in `abgeordnete` per AW-API nachziehen |
 | `fetch_abstimmungen.py` | Namentliche Abstimmungen → `abstimmungen` und `abstimmung_details` (Einleitungstext ohne HTML; Links mit Drucksachennummer, ohne Seiten von abgeordnetenwatch; Ergebnis aus Ja gegen Nein, bei Beschlussempfehlungen gelten die Stimmen der Empfehlung) |
 | `fetch_votes.py` | Einzelstimmen aus Poll-Details (`related_data=votes`) → `votes`. Wartet, solange `fetch_abstimmungen.py` läuft (PID-Lock `logs/fetch_abstimmungen.pid`, höchstens 30 Minuten), wiederholt bei 429 |
-| `kurztexte_abstimmungen.py` | Kurztext je Abstimmung → `abstimmung_details.kurztext`/`kurztext_en` (Groq). Schreibt neu, wenn sich die Beschreibung ändert; fällt ein Text zweimal durch die Prüfung, bleibt er leer (`--fehlgeschlagene` versucht es nochmal, `--poll ID` schreibt eine neu, `--probelauf` schreibt nichts) |
+| `kurztexte_abstimmungen.py` | Kurztext je Abstimmung → `abstimmung_details.kurztext`/`kurztext_en` (Claude-CLI, Max-Plan). Schreibt neu, wenn sich die Beschreibung ändert; fällt ein Text zweimal durch die Prüfung, bleibt er leer (`--fehlgeschlagene` versucht es nochmal, `--poll ID` schreibt eine neu, `--probelauf` schreibt nichts) |
 | `fetch_bgbl.py` | BGBl-Ticker → Zuordnung zu `aenderungen` |
 | `fetch_eu_recht.py` | EU-Rechtsakte SPARQL → `eu_rechtsakte`; Dokumentdatum in der Zukunft wird durch das Datum aus dem Titel ersetzt |
 | `fetch_lobbyregister.py` | Lobbyregister API (`sucheDetailJson`) → `lobbyregister` + `lobby_regulatory_projects` (Upsert) |

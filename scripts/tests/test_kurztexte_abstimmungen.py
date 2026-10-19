@@ -30,13 +30,19 @@ def test_hash_wie_sha1_in_mariadb():
 
 
 def test_antwort_mit_markdown_und_umbruechen():
-    roh = '```json\n{"de": "Satz eins.\\n Satz zwei.", "en": "One.  Two."}\n```'
-    assert kt.antwort_lesen(roh) == {"de": "Satz eins. Satz zwei.", "en": "One. Two."}
+    roh = '```json\n{"6733": {"de": "Satz eins.\\n Satz zwei.", "en": "One.  Two."}, "6731": {"de": "A.", "en": "B."}}\n```'
+    assert kt.antwort_lesen(roh) == {
+        6733: {"de": "Satz eins. Satz zwei.", "en": "One. Two."},
+        6731: {"de": "A.", "en": "B."},
+    }
 
 
-@pytest.mark.parametrize("roh", ["", "kein json", '{"de": "nur deutsch"}', '["de", "en"]', '{"de": 1, "en": "x"}'])
+@pytest.mark.parametrize(
+    "roh",
+    ["", "kein json", '{"6733": {"de": "nur deutsch"}}', '["de", "en"]', '{"6733": {"de": 1, "en": "x"}}', '{"x": {"de": "a", "en": "b"}}'],
+)
 def test_unbrauchbare_antworten(roh):
-    assert kt.antwort_lesen(roh) is None
+    assert kt.antwort_lesen(roh) == {}
 
 
 def test_saubere_texte_mit_ausschussempfehlung_gehen_durch():
@@ -76,40 +82,58 @@ def test_form_und_wertung(de, grund):
     assert grund in kt.pruefen({"de": de, "en": SAUBER["en"]})
 
 
-def test_zweiter_versuch_bekommt_den_grund(monkeypatch):
-    antworten = iter(
-        [
-            '{"de": "Der Bundestag beschloss etwas. Mehr nicht.", "en": "The Bundestag approved it. Nothing more."}',
-            '{"de": "%s", "en": "%s"}' % (SAUBER["de"], SAUBER["en"]),
-        ]
-    )
+def _antwort(**texte):
+    import json
+
+    return json.dumps({k.lstrip("p"): v for k, v in texte.items()}, ensure_ascii=False)
+
+
+def test_zweiter_versuch_nur_fuer_durchgefallene_mit_grund(monkeypatch):
+    schlecht = {"de": "Der Bundestag beschloss etwas. Mehr nicht.", "en": "The Bundestag approved it. Nothing more."}
+    antworten = iter([_antwort(p1=schlecht, p2=SAUBER), _antwort(p1=SAUBER)])
     prompts = []
 
-    def fake(messages, **kw):
-        prompts.append(messages[0]["content"])
+    def fake(prompt, **kw):
+        prompts.append(prompt)
         return next(antworten)
 
-    monkeypatch.setattr(kt, "chat_completion", fake)
+    monkeypatch.setattr(kt, "call_claude", fake)
     monkeypatch.setattr(kt.time, "sleep", lambda s: None)
-    texte, grund = kt.erzeugen("Keine weitere Reform des Staatsbürgerschaftsrechts", "Beschreibung")
-    assert texte == SAUBER and grund is None
+    ergebnis = kt.erzeugen([(1, "Staatsbürgerschaft", "Beschreibung"), (2, "Zweiter Titel", "Beschreibung")])
+    assert ergebnis == {1: (SAUBER, None), 2: (SAUBER, None)}
     assert len(prompts) == 2
+    assert "### Abstimmung 1" in prompts[0] and "### Abstimmung 2" in prompts[0]
     assert "passte nicht" not in prompts[0]
+    assert "### Abstimmung 1" in prompts[1] and "### Abstimmung 2" not in prompts[1]
     assert "passte nicht" in prompts[1] and "Bundestag" in prompts[1]
 
 
 def test_zweimal_unbrauchbar_gibt_grund(monkeypatch):
-    monkeypatch.setattr(kt, "chat_completion", lambda messages, **kw: "kein json")
+    aufrufe = []
+    monkeypatch.setattr(kt, "call_claude", lambda prompt, **kw: aufrufe.append(1) or "kein json")
     monkeypatch.setattr(kt.time, "sleep", lambda s: None)
-    texte, grund = kt.erzeugen("Titel", "Beschreibung")
-    assert texte is None and "JSON" in grund
+    ergebnis = kt.erzeugen([(7, "Titel", "Beschreibung")])
+    assert ergebnis[7][0] is None and "de und en" in ergebnis[7][1]
+    assert len(aufrufe) == 2
+
+
+def test_claude_ohne_antwort_laesst_alles_offen(monkeypatch):
+    monkeypatch.setattr(kt, "call_claude", lambda prompt, **kw: None)
+    with pytest.raises(kt.ClaudeFehler):
+        kt.erzeugen([(7, "Titel", "Beschreibung")])
+
+
+def test_hoechstens_vier_aufrufe_je_lauf():
+    # Projektregel: hoechstens 5 Claude-CLI-Aufrufe je Skriptlauf
+    assert kt.MAX_STAPEL * 2 <= 5
+    assert kt.LIMIT == kt.STAPEL * kt.MAX_STAPEL
 
 
 def test_prompt_enthaelt_titel_und_beschreibung():
-    p = kt.prompt_bauen(" Tankrabatt ", "Die Union wollte ... {nicht formatieren}")
-    assert "Titel der Abstimmung: Tankrabatt\n" in p
+    p = kt.prompt_bauen([(6733, " Tankrabatt ", "Die Union wollte ... {nicht formatieren}", None)])
+    assert "### Abstimmung 6733\n\nTitel: Tankrabatt\n" in p
     assert "{nicht formatieren}" in p
-    assert p.endswith('{"de": "...", "en": "..."}')
+    assert p.endswith('{"6733": {"de": "...", "en": "..."}}')
 
 
 # --- Zweiter Probelauf 19.10.2026 auf dem Server, nach dem Deploy -----------
@@ -173,10 +197,13 @@ def test_ohne_ergebnis_laesst_reine_ergebniszeile_stehen():
 
 def test_hinweis_nur_bei_empfohlener_ablehnung():
     q = kt.ohne_ergebnis(INTRO_6720)
-    assert "Achtung: Der Ausschuss empfahl, den Antrag abzulehnen" in kt.prompt_bauen(TITEL_6720, q)
-    p = kt.prompt_bauen("Neubau Bahnstrecke Hannover – Hamburg (Beschlussempfehlung)", "Der Verkehrsausschuss empfiehlt ...")
-    assert "Achtung" not in p
-    p = kt.prompt_bauen("Verlängerung des Bundeswehreinsatzes im Südsudan (UNMISS)", kt.ohne_ergebnis(INTRO_6731))
+    assert "Achtung: Der Ausschuss empfahl, den Antrag abzulehnen" in kt.prompt_bauen([(6720, TITEL_6720, q, None)])
+    p = kt.prompt_bauen(
+        [
+            (6728, "Neubau Bahnstrecke Hannover – Hamburg (Beschlussempfehlung)", "Der Verkehrsausschuss empfiehlt ...", None),
+            (6731, "Verlängerung des Bundeswehreinsatzes im Südsudan (UNMISS)", kt.ohne_ergebnis(INTRO_6731), None),
+        ]
+    )
     assert "Achtung" not in p
 
 
@@ -268,11 +295,11 @@ def test_zahlen_muessen_in_der_beschreibung_stehen():
 def test_erzeugen_schickt_die_bereinigte_beschreibung(monkeypatch):
     prompts = []
 
-    def fake(messages, **kw):
-        prompts.append(messages[0]["content"])
-        return '{"de": "%s", "en": "%s"}' % (SAUBER["de"], SAUBER["en"])
+    def fake(prompt, **kw):
+        prompts.append(prompt)
+        return _antwort(p6720=SAUBER)
 
-    monkeypatch.setattr(kt, "chat_completion", fake)
-    kt.erzeugen(TITEL_6720, INTRO_6720)
+    monkeypatch.setattr(kt, "call_claude", fake)
+    kt.erzeugen([(6720, TITEL_6720, INTRO_6720)])
     assert "445 Ja-Stimmen" not in prompts[0]
     assert "Achtung: Der Ausschuss empfahl" in prompts[0]

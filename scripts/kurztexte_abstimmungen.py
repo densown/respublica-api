@@ -8,6 +8,11 @@ zusammengefasst. Grundlage sind nur Titel und Beschreibung von
 abgeordnetenwatch (abstimmung_details.intro). Saetze mit dem Ergebnis
 nimmt ohne_ergebnis() vorher heraus, das Modell bekommt es nicht zu sehen.
 
+Die Texte schreibt Claude ueber die CLI im Max-Plan (lib/claude.py), bis zu
+10 Abstimmungen je Aufruf und hoechstens 4 Aufrufe je Lauf. Groq
+(openai/gpt-oss-120b) schrieb im Probelauf vom 19.10.2026 bei 4 von 7
+Texten fehlerhaftes Deutsch oder falsche Fachbegriffe.
+
 kurztext_hash ist SHA1 der Beschreibung, aus der der Text entstand. Aendert
 sich die Beschreibung, schreibt der naechste Lauf den Text neu, und die API
 zeigt den alten bis dahin nicht mehr an. Faellt ein Text zweimal durch die
@@ -15,9 +20,10 @@ Pruefung, bleibt kurztext leer und der Hash gesetzt, damit der Lauf nicht
 jeden Tag dieselbe Abstimmung neu versucht; --fehlgeschlagene holt das nach.
 
 Cron taeglich 06:40 UTC nach fetch_abstimmungen.py (06:10) und
-fetch_votes.py (06:12), siehe config/kurztexte-abstimmungen.cron.fragment.
+fetch_votes.py (06:12) und vor dem Brain-Briefing (07:00), das die CLI
+ebenfalls nutzt, siehe config/kurztexte-abstimmungen.cron.fragment.
 
-  python scripts/kurztexte_abstimmungen.py                    # bis zu 30 neue
+  python scripts/kurztexte_abstimmungen.py                    # bis zu 20 neue
   python scripts/kurztexte_abstimmungen.py --probelauf --limit 5
   python scripts/kurztexte_abstimmungen.py --poll 6733        # eine neu schreiben
   python scripts/kurztexte_abstimmungen.py --fehlgeschlagene  # leere nochmal
@@ -36,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from lib.db import get_db  # noqa: E402
 from lib.env import load_env  # noqa: E402
-from lib.groq import GroqError, chat_completion  # noqa: E402
+from lib.claude import call_claude  # noqa: E402
 from lib.log import (  # noqa: E402
     acquire_lock,
     get_logger,
@@ -45,11 +51,17 @@ from lib.log import (  # noqa: E402
 )
 
 LOCK_NAME = "kurztexte_abstimmungen"
-MODELL = "openai/gpt-oss-120b"
-# Tageskontingent bei Groq teilen sich alle Skripte; der erste Durchlauf
-# ueber alle Abstimmungen verteilt sich so auf mehrere Tage.
-LIMIT = 30
-PAUSE_SEC = 8
+MODELL = "claude-cli"
+# Je Stapel ein Aufruf und einer fuer die Durchgefallenen. Mehr als 5
+# CLI-Aufrufe je Lauf sind im Projekt nicht erlaubt, also hoechstens 2 Stapel;
+# der erste Durchlauf ueber alle Abstimmungen verteilt sich auf mehrere Tage.
+# Der Prompt geht als ein Argument an die CLI (Linux: hoechstens 128 KB),
+# 10 Beschreibungen bleiben deutlich darunter.
+STAPEL = 10
+MAX_STAPEL = 2
+LIMIT = STAPEL * MAX_STAPEL
+PAUSE_SEC = 5
+TIMEOUT_SEC = 300
 MAX_ZEICHEN = 320
 
 log = get_logger(LOCK_NAME)
@@ -62,14 +74,13 @@ def _stop() -> None:
     _running = False
 
 
-PROMPT = """Du schreibst für Res.Publica, eine unabhängige politische Datenplattform, einen Kurztext zu einer namentlichen Abstimmung im Bundestag. Er steht in der Abstimmungsliste und auf einem Bild für Instagram direkt unter dem Titel.
+class ClaudeFehler(RuntimeError):
+    """CLI fehlt, Zeitueberschreitung oder Kontingent weg: kein Fehler des Textes."""
 
-Titel der Abstimmung: {titel}
 
-Beschreibung von abgeordnetenwatch.de:
-{intro}
-{hinweis}
-Regeln:
+PROMPT = """Du schreibst für Res.Publica, eine unabhängige politische Datenplattform, zu jeder der folgenden namentlichen Abstimmungen im Bundestag einen Kurztext. Er steht in der Abstimmungsliste und auf einem Bild für Instagram direkt unter dem Titel.
+
+Regeln für jeden Kurztext:
 - Genau zwei vollständige Sätze, zusammen höchstens 260 Zeichen. Lies jeden Satz noch einmal: Er muss grammatisch vollständig sein.
 - Satz 1 sagt, wer was wollte. Den Antragsteller nimmst du nur aus der Beschreibung: die Bundesregierung, eine oder mehrere Fraktionen oder eine Gruppe von Abgeordneten. Nennt die Beschreibung keinen, beginne mit dem Vorhaben selbst, etwa „Der Gesetzentwurf sollte …“. Nie mit „Der Bundestag“ beginnen.
 - Bei einem Gesetzentwurf heißt es „legte einen Gesetzentwurf vor“ oder „wollte“, nicht „beantragte“.
@@ -83,7 +94,17 @@ Regeln:
 
 Dazu dieselben zwei Sätze auf Englisch für internationale Leser: inhaltlich genau dasselbe wie auf Deutsch, nichts weglassen und nichts ergänzen. Parteien so: CDU/CSU, SPD, AfD, the Greens, the Left. Auch dort nicht mit „The Bundestag“ beginnen und kein approved, adopted, passed, rejected oder voted.
 
-Antworte nur mit JSON, ohne Markdown: {{"de": "...", "en": "..."}}"""
+{abstimmungen}
+
+Antworte nur mit JSON, ohne Markdown, ein Eintrag je Abstimmungsnummer: {{"6733": {{"de": "...", "en": "..."}}}}"""
+
+ABSTIMMUNG = """### Abstimmung {poll_id}
+
+Titel: {titel}
+
+Beschreibung von abgeordnetenwatch.de:
+{intro}
+{hinweis}{nochmal}"""
 
 # Titel wie "Beschlussempfehlung zu drittem Antrag: Organisierte
 # Steuerhinterziehung wie bisher bekaempfen" beschreiben, wofuer ein Ja stand.
@@ -95,7 +116,7 @@ HINWEIS_ABLEHNUNG = (
     "Beschreibung, meist das Gegenteil des Titels.\n"
 )
 
-NOCHMAL = "\n\nDein letzter Vorschlag passte nicht: {grund}. Schreib die beiden Sätze neu und halte dich an alle Regeln."
+NOCHMAL = "\nDein letzter Vorschlag zu dieser Abstimmung passte nicht: {grund}. Schreib die beiden Sätze neu und halte dich an alle Regeln.\n"
 
 # Was auf ein Ergebnis oder eine Wertung hindeutet. Die Empfehlung des
 # Ausschusses ("empfahl, den Antrag abzulehnen") bleibt erlaubt.
@@ -151,30 +172,45 @@ def _zahlen(text: str) -> set[str]:
     return {z.replace(".", "").replace(",", "") for z in ZAHL.findall(text)}
 
 
-def prompt_bauen(titel: str, intro: str, grund: str | None = None) -> str:
-    hinweis = HINWEIS_ABLEHNUNG if ablehnung_empfohlen(titel, intro) else ""
-    text = PROMPT.format(titel=titel.strip(), intro=intro.strip(), hinweis=hinweis)
-    if grund:
-        text += NOCHMAL.format(grund=grund)
-    return text
+def prompt_bauen(stapel: list[tuple[int, str, str, str | None]]) -> str:
+    """Ein Prompt fuer mehrere Abstimmungen: (poll_id, titel, intro ohne Ergebnis, Grund oder None)."""
+    bloecke = [
+        ABSTIMMUNG.format(
+            poll_id=poll_id,
+            titel=titel.strip(),
+            intro=intro.strip(),
+            hinweis=HINWEIS_ABLEHNUNG if ablehnung_empfohlen(titel, intro) else "",
+            nochmal=NOCHMAL.format(grund=grund) if grund else "",
+        )
+        for poll_id, titel, intro, grund in stapel
+    ]
+    return PROMPT.format(abstimmungen="\n".join(bloecke).strip())
 
 
-def antwort_lesen(roh: str) -> dict[str, str] | None:
-    """JSON aus der Antwort, auch wenn das Modell Markdown drumherum schreibt."""
+def antwort_lesen(roh: str) -> dict[int, dict[str, str]]:
+    """Texte je poll_id aus der Antwort, auch mit Markdown drumherum.
+
+    Eintraege ohne de und en fehlen im Ergebnis; erzeugen() behandelt sie
+    wie einen durchgefallenen Text.
+    """
     text = roh.replace("```json", "").replace("```", "").strip()
     start, ende = text.find("{"), text.rfind("}")
     if start < 0 or ende <= start:
-        return None
+        return {}
     try:
         daten = json.loads(text[start : ende + 1])
     except json.JSONDecodeError:
-        return None
+        return {}
     if not isinstance(daten, dict):
-        return None
-    de, en = daten.get("de"), daten.get("en")
-    if not isinstance(de, str) or not isinstance(en, str):
-        return None
-    return {"de": " ".join(de.split()), "en": " ".join(en.split())}
+        return {}
+    texte = {}
+    for schluessel, eintrag in daten.items():
+        if not str(schluessel).isdigit() or not isinstance(eintrag, dict):
+            continue
+        de, en = eintrag.get("de"), eintrag.get("en")
+        if isinstance(de, str) and isinstance(en, str):
+            texte[int(schluessel)] = {"de": " ".join(de.split()), "en": " ".join(en.split())}
+    return texte
 
 
 def pruefen(texte: dict[str, str], titel: str = "", intro: str = "") -> str | None:
@@ -219,28 +255,39 @@ def pruefen(texte: dict[str, str], titel: str = "", intro: str = "") -> str | No
     return None
 
 
-def erzeugen(titel: str, intro: str) -> tuple[dict[str, str] | None, str | None]:
-    """Bis zu zwei Versuche. (Texte, None) oder (None, letzter Grund).
+def erzeugen(stapel: list[tuple[int, str, str]]) -> dict[int, tuple[dict[str, str] | None, str | None]]:
+    """Texte fuer (poll_id, titel, intro), je poll_id (Texte, None) oder (None, letzter Grund).
 
-    GroqError geht durch: Kontingent weg oder Groq nicht erreichbar ist
-    kein Fehler des Textes, die Abstimmung bleibt offen.
+    Hoechstens zwei Aufrufe: alle zusammen, dann die Durchgefallenen mit
+    ihrem Grund. ClaudeFehler geht durch, die Abstimmungen bleiben offen.
     """
-    quelle = ohne_ergebnis(intro)
-    grund: str | None = None
+    offen = {poll_id: (titel, ohne_ergebnis(intro), None) for poll_id, titel, intro in stapel}
+    ergebnis: dict[int, tuple[dict[str, str] | None, str | None]] = {}
     for versuch in range(2):
+        if not offen:
+            break
         if versuch:
             time.sleep(PAUSE_SEC)
-        roh = chat_completion(
-            [{"role": "user", "content": prompt_bauen(titel, quelle, grund)}],
-            model=MODELL,
-            max_tokens=500,
-            temperature=0.2,
+        roh = call_claude(
+            prompt_bauen([(poll_id, titel, quelle, grund) for poll_id, (titel, quelle, grund) in offen.items()]),
+            timeout=TIMEOUT_SEC,
+            log=log.warning,
         )
-        texte = antwort_lesen(roh)
-        grund = "die Antwort war kein JSON mit de und en" if texte is None else pruefen(texte, titel, quelle)
-        if grund is None:
-            return texte, None
-    return None, grund
+        if roh is None:
+            raise ClaudeFehler("Claude-CLI ohne Antwort")
+        antworten = antwort_lesen(roh)
+        naechste = {}
+        for poll_id, (titel, quelle, _) in offen.items():
+            texte = antworten.get(poll_id)
+            grund = "keine Antwort mit de und en" if texte is None else pruefen(texte, titel, quelle)
+            if grund is None:
+                ergebnis[poll_id] = (texte, None)
+            else:
+                naechste[poll_id] = (titel, quelle, grund)
+        offen = naechste
+    for poll_id, (_, _, grund) in offen.items():
+        ergebnis[poll_id] = (None, grund)
+    return ergebnis
 
 
 def offene(cur, limit: int, poll: int | None, fehlgeschlagene: bool) -> list[tuple]:
@@ -283,7 +330,7 @@ def speichern(cur, poll_id: int, intro: str, texte: dict[str, str] | None) -> No
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Kurztexte je Abstimmung schreiben")
-    ap.add_argument("--limit", type=int, default=LIMIT, help=f"hoechstens so viele (Standard {LIMIT})")
+    ap.add_argument("--limit", type=int, default=LIMIT, help=f"hoechstens so viele, je Lauf nie mehr als {LIMIT}")
     ap.add_argument("--poll", type=int, help="nur diese Abstimmung, auch wenn sie schon einen Text hat")
     ap.add_argument("--fehlgeschlagene", action="store_true", help="Abstimmungen ohne brauchbaren Text nochmal")
     ap.add_argument("--probelauf", action="store_true", help="nur anzeigen, nichts schreiben")
@@ -301,29 +348,34 @@ def main() -> int:
         zeilen = offene(cur, max(args.limit, 1), args.poll, args.fehlgeschlagene)
         log.info("%d Abstimmungen ohne aktuellen Kurztext%s", len(zeilen), " (Probelauf)" if args.probelauf else "")
 
+        if len(zeilen) > LIMIT:
+            log.info("Nur die ersten %d in diesem Lauf, Rest beim naechsten", LIMIT)
+            zeilen = zeilen[:LIMIT]
+
         geschrieben = leer = 0
-        for i, (poll_id, titel, intro) in enumerate(zeilen):
+        for start in range(0, len(zeilen), STAPEL):
             if not _running:
-                log.warning("Abbruch angefordert, beende nach %d Abstimmungen", i)
+                log.warning("Abbruch angefordert, beende nach %d Abstimmungen", start)
                 break
-            if i:
+            if start:
                 time.sleep(PAUSE_SEC)
+            stapel = zeilen[start : start + STAPEL]
             try:
-                texte, grund = erzeugen(titel or "", intro)
-            except GroqError as exc:
-                log.error("%s: Groq-Fehler (%s)", poll_id, exc)
-                if exc.quota_exhausted:
-                    log.warning("Kontingent erschoepft, Rest morgen")
-                    break
-                continue
-            if texte:
-                log.info("%s: %s | %s", poll_id, texte["de"], texte["en"])
-                geschrieben += 1
-            else:
-                log.warning("%s: kein brauchbarer Text (%s)", poll_id, grund)
-                leer += 1
+                ergebnisse = erzeugen([(poll_id, titel or "", intro) for poll_id, titel, intro in stapel])
+            except ClaudeFehler as exc:
+                log.error("%s, Rest beim naechsten Lauf", exc)
+                break
+            for poll_id, _titel, intro in stapel:
+                texte, grund = ergebnisse[poll_id]
+                if texte:
+                    log.info("%s: %s | %s", poll_id, texte["de"], texte["en"])
+                    geschrieben += 1
+                else:
+                    log.warning("%s: kein brauchbarer Text (%s)", poll_id, grund)
+                    leer += 1
+                if not args.probelauf:
+                    speichern(cur, poll_id, intro, texte)
             if not args.probelauf:
-                speichern(cur, poll_id, intro, texte)
                 db.commit()
 
         verb = "wuerden geschrieben" if args.probelauf else "geschrieben"
