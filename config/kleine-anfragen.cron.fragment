@@ -1,0 +1,11 @@
+# Tracker Kleine Anfragen (Migration 021). Erst nach Einspielen der Migration aktivieren.
+# 05:40 UTC  Import aus dem DIP (neue Antworten, nachgelieferte Volltexte)
+# 05:50, 13:50, 19:50 UTC  Auswertung mit der Claude-CLI im Max-Plan, je Lauf hoechstens 4 Aufrufe.
+#            Nicht zur selben Zeit wie classify_versammlungen (06:45, 18:45) und Brain-Briefing (07:00).
+# Mo 06:05 UTC  Themenliste der Woche nach data/kleine-anfragen/woche-JJJJ-KWnn.md
+# PATH, damit cron die CLI findet (Installation unter /root/.local/bin oder /usr/local/bin).
+# Installation: Kopie nach /etc/cron.d/kleine-anfragen und systemctl restart cron
+PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+40 5 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_kleine_anfragen.py >> /root/apps/gesetze/logs/cron.log 2>&1
+50 5,13,19 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/summarize_kleine_anfragen.py >> /root/apps/gesetze/logs/cron.log 2>&1
+5 6 * * 1 root cd /root/apps/gesetze && .venv/bin/python3 scripts/wochenliste_kleine_anfragen.py > /dev/null 2>> /root/apps/gesetze/logs/cron.log
