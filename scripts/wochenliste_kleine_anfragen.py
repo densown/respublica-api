@@ -65,7 +65,7 @@ def markdown(top: list[dict], nicht: list[dict], offen: list[dict], von: date, b
             zeilen.append(f"- **{kz['wert']} {kz['einheit']}**: {kz['bedeutung']}")
         zeilen.append("")
         zeilen.append("Quellen:")
-        if z["pdf_url"]:
+        if z["pdf_url"] and z["text_zeichen"]:
             zeilen.append(f"- PDF: {z['pdf_url']}")
         if z["vorgang_id"]:
             zeilen.append(f"- DIP: {DIP_VORGANG.format(z['vorgang_id'])}")
@@ -80,7 +80,9 @@ def markdown(top: list[dict], nicht: list[dict], offen: list[dict], von: date, b
         zeilen.append("Keine.")
     for z in offen:
         grund = "Volltext fehlt im DIP noch" if not z["text_zeichen"] else "Auswertung steht aus"
-        zeilen.append(f"- {z['titel']} ({_kopf(z)}), {grund}. {z['pdf_url'] or ''}")
+        # Ohne Volltext liefert dserver fuer das PDF noch 404, der DIP-Vorgang geht sofort
+        link = DIP_VORGANG.format(z["vorgang_id"]) if z["vorgang_id"] else ""
+        zeilen.append(f"- {z['titel']} ({_kopf(z)}), {grund}. {link}")
     return "\n".join(zeilen) + "\n"
 
 
