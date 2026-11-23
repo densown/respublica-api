@@ -1,0 +1,5 @@
+# Taeglich 05:20 UTC: amtliche Kreisergebnisse von Bundestags- und Europawahl nach `wahlen`.
+# Tut nur in den 90 Tagen nach einem Wahltermin aus `wahltermine` etwas, sonst nichts.
+# Schreibt nur, wenn alle Pruefungen bestehen. Ausgabe "FEHLER" im Log heisst: nichts geschrieben.
+# Installation: Kopie nach /etc/cron.d/wahl-amtlich und systemctl restart cron
+20 5 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/import_wahl_amtlich.py --auto --schreiben >> /root/apps/gesetze/logs/wahl-amtlich.log 2>&1
