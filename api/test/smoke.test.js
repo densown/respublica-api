@@ -65,6 +65,7 @@ const EXPECT_200 = [
   "/api/kleine-anfragen/facetten",
   "/api/kleine-anfragen/woche",
   "/api/kleine-anfragen/woche?tage=30&top=5",
+  "/api/seiten/sitemap.xml",
 ];
 
 // Endpoints, die je nach Query 200/400/404 liefern duerfen, aber kein 5xx.
@@ -115,6 +116,11 @@ const NO_5XX = [
   "/api/kleine-anfragen?sort=kaputt",
   "/api/kleine-anfragen?min_wert=11",
   "/api/kleine-anfragen/woche?tage=0",
+  "/api/seiten/html",
+  "/api/seiten/html?pfad=/bundestag/999999999",
+  "/api/seiten/html?pfad=/bundestag/abgeordnete/999999999",
+  "/api/seiten/html?pfad=/gesetze/999999999",
+  "/api/seiten/html?pfad=/../etc/passwd",
 ];
 
 test("List-/Stats-Endpoints liefern 200", async (t) => {
