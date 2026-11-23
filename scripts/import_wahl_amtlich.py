@@ -16,6 +16,7 @@ vorläufigen wird so das endgültige Ergebnis.
   python scripts/import_wahl_amtlich.py european 2024            # prüfen
   python scripts/import_wahl_amtlich.py european 2024 --schreiben
   python scripts/import_wahl_amtlich.py federal 2025 --datei btw2025kreis.csv --summe kerg2.csv
+  python scripts/import_wahl_amtlich.py state 2026 --land 15     # Landtagswahl, Leser je Land in LAENDER
   python scripts/import_wahl_amtlich.py --auto --schreiben       # für Cron
 
 --auto sieht in `wahltermine` nach Bundestags- und Europawahlen der letzten
@@ -73,8 +74,59 @@ def finde_kreisdatei(jahr: int) -> str | None:
     return None
 
 
-def lade_wahl(typ: str, jahr: int, datei: str | None, summe: str | None) -> dict | None:
+# Landtagswahlen: jede Landeswahlleitung hat ein eigenes Format, also je Wahl ein Eintrag.
+# `summe` ist eine zweite Datei mit der Landeszeile, wenn die Hauptdatei keine hat.
+_MV = "https://www.laiv-mv.de/static/LAIV/Wahlen/2-Landtagswahlen/2026/Ergebnisse/"
+LAENDER = {
+    ("08", 2026): {"name": "Baden-Württemberg", "datum": date(2026, 3, 8), "kreise": 44,
+                   "url": "https://wahlen.statistik-bw.de/ltw26/ltw26-ergebnisse.csv",
+                   "lies": lambda roh, summe: wa.lies_bw(wa.text_aus_bytes(roh))},
+    ("07", 2026): {"name": "Rheinland-Pfalz", "datum": date(2026, 3, 22), "kreise": 36,
+                   "url": "https://www.wahlen.rlp.de/fileadmin/wahlen.rlp.de/dokumente-wahlen/ltw/Ergebnisdateien/2026/Endgueltiges_Ergebnis_LW_2026_LK_KS.xlsx",
+                   "lies": lambda roh, summe: wa.lies_rp(wa.lies_xlsx(roh))},
+    ("15", 2026): {"name": "Sachsen-Anhalt", "datum": date(2026, 9, 6), "kreise": 14,
+                   "url": "https://wahlergebnisse.sachsen-anhalt.de/wahlen/lt26/downloads/Ergebnisse_Land_RKR_WKR_LT_2026.csv",
+                   "lies": lambda roh, summe: wa.lies_st(wa.text_aus_bytes(roh))},
+    ("13", 2026): {"name": "Mecklenburg-Vorpommern", "datum": date(2026, 9, 20), "kreise": 8,
+                   "url": _MV + "l_gemeinden.csv", "summe": _MV + "l_wahlkreise.csv",
+                   "lies": lambda roh, summe: wa.lies_mv(wa.text_aus_bytes(roh), wa.text_aus_bytes(summe) if summe else None)},
+    ("11", 2026): {"name": "Berlin", "datum": date(2026, 9, 20), "kreise": 1,
+                   "url": "https://www.wahlen-berlin.de/wahlen/BE2026/Afspraes/AGH/DL/DL_BE_AGHBVV2026.xlsx",
+                   "lies": lambda roh, summe: wa.lies_be(wa.lies_xlsx(roh, "AGH_W2"))},
+    # Der Pfad hat keine Jahreszahl. Bis zur Wahl am 18.04.2027 liegt dort das Ergebnis von 2022.
+    ("10", 2022): {"name": "Saarland", "datum": date(2022, 3, 27), "kreise": 6,
+                   "url": "https://wahlergebnis.saarland.de/LTW/KERG_SAARLAND.csv",
+                   "lies": lambda roh, summe: wa.lies_sl(wa.text_aus_bytes(roh))},
+}
+
+
+def lade_land(land: str, jahr: int, datei: str | None, summe: str | None) -> dict | None:
+    eintrag = LAENDER.get((land, jahr))
+    if not eintrag:
+        bekannt = ", ".join(f"{l} {j}" for l, j in sorted(LAENDER))
+        raise SystemExit(f"Für Land {land} und Jahr {jahr} gibt es keinen Leser. Vorhanden: {bekannt}")
+    roh = Path(datei).read_bytes() if datei else hole(eintrag["url"])
+    if roh is None:
+        return None
+    roh_summe = None
+    if summe:
+        roh_summe = Path(summe).read_bytes()
+    elif eintrag.get("summe") and not datei:
+        roh_summe = hole(eintrag["summe"])
+    wahl = eintrag["lies"](roh, roh_summe)
+    wahl["datum"] = eintrag["datum"]
+    wahl["quelle"] = datei or eintrag["url"]
+    wahl["erwartete_kreise"] = eintrag["kreise"]
+    fremd = sorted(a for a in wahl["kreise"] if not a.startswith(land))
+    if fremd:
+        raise wa.FormatFehler(f"Kreise außerhalb des Landes {land}: {fremd[:5]}")
+    return wahl
+
+
+def lade_wahl(typ: str, jahr: int, datei: str | None, summe: str | None, land: str | None = None) -> dict | None:
     """Liefert die gelesene Wahl oder None, wenn die Datei noch fehlt."""
+    if typ == "state":
+        return lade_land(land, jahr, datei, summe)
     def lies(pfad_oder_url: str | None, url: str | None) -> str | None:
         if pfad_oder_url:
             return wa.text_aus_bytes(Path(pfad_oder_url).read_bytes())
@@ -99,7 +151,7 @@ def lade_wahl(typ: str, jahr: int, datei: str | None, summe: str | None) -> dict
             wahl["soll"], wahl["datum"] = k2["soll"], k2["datum"]
             wahl["status"] = wahl["status"] or k2["status"]
     else:
-        raise SystemExit(f"Unbekannte Wahlart: {typ} (federal oder european)")
+        raise SystemExit(f"Unbekannte Wahlart: {typ} (federal, european oder state)")
     wahl["kreise"] = wa.fasse_zusammen(wahl["kreise"])
     wahl["quelle"] = datei or quelle
     return wahl
@@ -117,12 +169,12 @@ UPSERT = (
 )
 
 
-def bestand(db, typ: str, jahr: int) -> dict[str, dict]:
+def bestand(db, typ: str, jahr: int, land: str | None = None) -> dict[str, dict]:
     cur = db.cursor(dictionary=True)
     cur.execute(
         f"SELECT ags, {', '.join(wa.WERT_SPALTEN)} FROM wahlen "
-        "WHERE typ = %s AND election_year = %s AND election_type = '' AND round = 0",
-        (typ, jahr),
+        "WHERE typ = %s AND election_year = %s AND election_type = '' AND round = 0 AND ags LIKE %s",
+        (typ, jahr, (land or "") + "%"),
     )
     return {z["ags"]: z for z in cur.fetchall()}
 
@@ -138,11 +190,11 @@ def kreise_der_vorwahl(db, typ: str, jahr: int) -> int | None:
     return n or None
 
 
-def laufe(db, typ: str, jahr: int, *, datei=None, summe=None, schreiben=False) -> int:
+def laufe(db, typ: str, jahr: int, *, datei=None, summe=None, schreiben=False, land=None) -> int:
     """0 = in Ordnung oder nichts zu tun, 1 = Prüfung gescheitert."""
-    name = f"{typ} {jahr}"
+    name = f"{typ} {jahr}" + (f" Land {land}" if land else "")
     try:
-        wahl = lade_wahl(typ, jahr, datei, summe)
+        wahl = lade_wahl(typ, jahr, datei, summe, land)
     except wa.FormatFehler as e:
         print(f"FEHLER {name}: Datei hat ein unerwartetes Format: {e}")
         return 1
@@ -150,7 +202,7 @@ def laufe(db, typ: str, jahr: int, *, datei=None, summe=None, schreiben=False) -
         print(f"{name}: amtliche Datei noch nicht veröffentlicht, nichts zu tun")
         return 0
 
-    erwartet = kreise_der_vorwahl(db, typ, jahr) if db else None
+    erwartet = wahl.get("erwartete_kreise") or (kreise_der_vorwahl(db, typ, jahr) if db else None)
     fehler = wa.pruefe(wahl["kreise"], soll=wahl["soll"], erwartete_kreise=erwartet)
     if wahl["soll"] is None:
         fehler.append("keine amtliche Gesamtzeile zur Gegenprobe")
@@ -165,11 +217,11 @@ def laufe(db, typ: str, jahr: int, *, datei=None, summe=None, schreiben=False) -
             print(f"  - {f}")
         return 1
 
-    zeilen = wa.zu_zeilen(k, typ=typ, jahr=jahr, datum=wahl["datum"])
+    zeilen = wa.zu_zeilen(k, typ=typ, jahr=jahr, datum=wahl["datum"], land=land)
     if not db:
         print("  Prüfungen bestanden (ohne Datenbank, kein Vergleich)")
         return 0
-    b = wa.vergleiche(zeilen, bestand(db, typ, jahr))
+    b = wa.vergleiche(zeilen, bestand(db, typ, jahr, land))
     print(f"  Vergleich mit der Datenbank: {b['neu']} neu, {b['geaendert']} geändert, {b['gleich']} gleich, "
           f"größte Abweichung {b['groesste_abweichung'] * 100:.2f} Punkte")
     for bsp in b["beispiele"]:
@@ -201,16 +253,19 @@ def auto_wahlen(db, heute: date) -> list[tuple[str, int]]:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("typ", nargs="?", choices=["federal", "european"])
+    p.add_argument("typ", nargs="?", choices=["federal", "european", "state"])
     p.add_argument("jahr", nargs="?", type=int)
+    p.add_argument("--land", help="Landesschlüssel für state, zweistellig (08, 07, 15, 13, 11, 10)")
     p.add_argument("--datei", help="lokale Datei statt Download")
-    p.add_argument("--summe", help="lokale kerg2.csv als Gesamtsumme (nur Bundestagswahl)")
+    p.add_argument("--summe", help="lokale Datei mit der Gesamtsumme (Bundestagswahl: kerg2.csv, MV: l_wahlkreise.csv)")
     p.add_argument("--schreiben", action="store_true", help="in die Datenbank schreiben")
     p.add_argument("--ohne-db", action="store_true", help="nur Datei prüfen, keine Datenbank")
     p.add_argument("--auto", action="store_true", help="Wahlen der letzten 90 Tage aus wahltermine")
     a = p.parse_args(argv)
     if not a.auto and not (a.typ and a.jahr):
         p.error("Wahlart und Jahr angeben oder --auto")
+    if a.typ == "state" and not a.land:
+        p.error("state braucht --land")
 
     db = None
     if not a.ohne_db:
@@ -229,7 +284,7 @@ def main(argv=None) -> int:
             for typ, jahr in wahlen:
                 status |= laufe(db, typ, jahr, schreiben=a.schreiben)
             return status
-        return laufe(db, a.typ, a.jahr, datei=a.datei, summe=a.summe, schreiben=a.schreiben)
+        return laufe(db, a.typ, a.jahr, datei=a.datei, summe=a.summe, schreiben=a.schreiben, land=a.land)
     finally:
         if db:
             db.close()
