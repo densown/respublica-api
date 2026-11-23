@@ -136,12 +136,23 @@ def antwort_lesen(roh: str) -> dict | None:
     return d if isinstance(d, dict) else None
 
 
-_ZAHL_RE = re.compile(r"\d[\d.   ]*\d|\d")
+# Tausendertrenner nur zwischen Dreiergruppen: "7.025", "7 025" (auch geschuetzte
+# Leerzeichen). Frueher galt jedes Leerzeichen als Trenner, dann wurde eine ganze
+# Tabellenzeile ("2026 12.984 2 0 91 27") zu einer einzigen Zahl und jede Zahl aus
+# einer Tabelle galt als nicht belegt.
+_ZAHL_RE = re.compile(r"\d{1,3}(?:[.\u00a0\u202f ]\d{3})+(?!\d)|\d+")
+# Ohne Leerzeichen als Trenner: "91 271" in einer Tabelle sind zwei Zahlen
+_ZAHL_PUNKT_RE = re.compile(r"\d{1,3}(?:\.\d{3})+(?!\d)|\d+")
 
 
 def _zahlen(s: str) -> set[str]:
     """Zahlen als Ziffernfolge ohne Tausendertrenner; Komma trennt (3,27 -> 3 und 27)."""
     return {re.sub(r"\D", "", z) for z in _ZAHL_RE.findall(s or "")} - {""}
+
+
+def _zahlen_im_text(s: str) -> set[str]:
+    """Alle Lesarten der Zahlen im Quelltext: mit und ohne Leerzeichen als Trenner."""
+    return _zahlen(s) | {re.sub(r"\D", "", z) for z in _ZAHL_PUNKT_RE.findall(s or "")}
 
 
 def regierungstext(text: str) -> str:
@@ -173,7 +184,7 @@ def pruefen(d: dict, text: str) -> tuple[dict | None, str | None]:
     felder["story_wert"] = max(0, min(10, wert))
 
     gt = regierungstext(text)
-    im_text = _zahlen(gt)
+    im_text = _zahlen_im_text(gt)
     for k in ("zusammenfassung", "schlagzeile"):
         fremd = sorted(z for z in _zahlen(felder[k]) if len(z) >= 2 and z not in im_text)
         if fremd:
