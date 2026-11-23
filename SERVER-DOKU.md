@@ -183,6 +183,7 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 04:00 | `gii_sync.py` | Metadaten von gesetze-im-internet.de (`gii-toc.xml`, `xml.zip`) nach `gesetze` (Vorschlag: `config/gesetze-gii-sync.cron.fragment` nach `/etc/cron.d/` kopieren) |
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
+| 05:20 | `import_wahl_amtlich.py --auto --schreiben` | Amtliche Kreisergebnisse von Bundestags- und Europawahl → `wahlen`. Tut nur in den 90 Tagen nach einem Wahltermin aus `wahltermine` etwas; schreibt nur bei bestandenen Prüfungen, sonst `FEHLER` in `logs/wahl-amtlich.log` (Fragment: `config/wahl-amtlich.cron.fragment`) |
 | 05:40 | `fetch_kleine_anfragen.py` | Antworten auf Kleine Anfragen aus dem DIP → `kleine_anfragen` (inkrementell nach `f.aktualisiert`, Volltext kommt etwa 5 Tage nach der Drucksache; Fragment: `config/kleine-anfragen.cron.fragment`, erst nach Migration 021) |
 | 05:50, 13:50, 19:50 | `summarize_kleine_anfragen.py` | Zusammenfassung DE/EN, Schlagzeile, geprüfte Kernzahlen, story_wert je Antwort (Claude-CLI im Max-Plan, höchstens 4 Aufrufe je Lauf; Fragment wie oben) |
 | Mo 06:05 | `wochenliste_kleine_anfragen.py` | Themenliste der Woche → `data/kleine-anfragen/woche-JJJJ-KWnn.md`, nur lesend (Fragment wie oben) |
@@ -253,7 +254,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |
 | `import_diffs_to_db.py` | `data/diffs/YYYY-MM-DD.json` → MariaDB |
 | `import_wahlen.py` | GERDA/Wahldaten-CSV → `wahlen` |
-| `import_wahl_amtlich.py` | Amtliche Kreisergebnisse von Bundestags- und Europawahl (Dateien der Bundeswahlleiterin) und von Landtagswahlen (`state JJJJ --land NN`, je Wahl ein Leser in `LAENDER`) → `wahlen`. Ohne `--schreiben` nur Prüfung und Vergleich; schreibt nur bei bestandenen Prüfungen (Zahl der Kreise, Summen gegen die amtliche Gesamtzeile). `--auto` für Cron (Fragment: `config/wahl-amtlich.cron.fragment`, noch nicht eingebaut). Leser in `scripts/lib/wahl_amtlich.py` |
+| `import_wahl_amtlich.py` | Amtliche Kreisergebnisse von Bundestags- und Europawahl (Dateien der Bundeswahlleiterin) und von Landtagswahlen (`state JJJJ --land NN`, je Wahl ein Leser in `LAENDER`) → `wahlen`. Ohne `--schreiben` nur Prüfung und Vergleich; schreibt nur bei bestandenen Prüfungen (Zahl der Kreise, Summen gegen die amtliche Gesamtzeile). `--auto` für Cron (Fragment: `config/wahl-amtlich.cron.fragment`, eingebaut seit 24.11.2026). Leser in `scripts/lib/wahl_amtlich.py` |
 | `import_world_indicators.py` | World-Bank-artige Indikatoren → `world_indicators` |
 | `import_baci.py` | CEPII BACI HS17 (2017-2024) → `trade_flows_v2` inkl. `TOTAL`, Sections I-XXI und `OTHER` mit Audit-Context in `data_update_log` |
 | `match_abstimmungen.py` | DIP-Abgleich `aenderungen` ↔ `abstimmungen` |
