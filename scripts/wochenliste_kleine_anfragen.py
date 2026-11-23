@@ -27,7 +27,8 @@ from lib import kleine_anfragen as ka  # noqa: E402
 from lib.db import get_db  # noqa: E402
 from lib.env import ROOT, load_env  # noqa: E402
 
-DIP_VORGANG = "https://dip.bundestag.de/vorgang/{}"
+# DIP braucht einen Titel-Teil im Pfad, "-" genuegt (ohne: "Seite nicht gefunden")
+DIP_VORGANG = "https://dip.bundestag.de/vorgang/-/{}"
 
 
 def _fraktion(z: dict) -> str:

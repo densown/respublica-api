@@ -340,7 +340,7 @@ test("Kleine Anfragen: Volltextsuche mit Praefix und Trefferausschnitt", { skip 
   assert.ok(k.treffer.includes("Kriegsdienstverweigerung"));
   assert.strictEqual(k.fraktion_name, "Die Linke");
   assert.deepStrictEqual(k.kernzahlen[0].wert, "7 025");
-  assert.strictEqual(k.dip_url, "https://dip.bundestag.de/vorgang/990101");
+  assert.strictEqual(k.dip_url, "https://dip.bundestag.de/vorgang/-/990101");
   assert.ok(res.body.hinweis);
 });
 
