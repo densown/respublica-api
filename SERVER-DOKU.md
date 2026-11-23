@@ -144,6 +144,7 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/wahlen/compare` | Vergleich |
 | GET | `/api/wahlen/scatter` | Scatter |
 | GET | `/api/wahlen/ranking` | Ranking |
+| GET | `/api/wahlen/gesamt` | Gesamtergebnis einer Wahl aus den Kreisen, nach gültigen Stimmen gewichtet (`typ`, `year`, optional `state`) |
 | GET | `/api/wahlen/change` | Wechsel |
 | GET | `/api/wahlen/national-average` | Bundesdurchschnitt |
 | GET | `/api/wahlen/stats` | Statistik |
