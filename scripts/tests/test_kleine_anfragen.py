@@ -188,6 +188,20 @@ def test_pruefen_vereinheitlicht_nach_der_pruefung():
     assert "7 025" in felder["kernzahlen"][0]["zitat"]
 
 
+def test_regierungstext_behaelt_tabellenzeile_vor_wiederholter_frage():
+    anlage = (
+        "Anlage 5\nJahr Bewerbungen Einstellungen\n2025 17.402 51.010\n"
+        "2026 (Stichtag 30.09.2026) 18.693 58.722\n"
+        "Wie viele Bewerberinnen und Bewerber gab es\nseit 2025 (bitte nach Jahren aufschlüsseln)?\n"
+        "Die Bundesregierung verweist auf Anlage 5. Wie hoch ist der Anteil?"
+    )
+    gt = ska.regierungstext(anlage)
+    assert "58.722" in gt and "18.693" in gt and "30.09.2026" in gt
+    assert "Bewerberinnen" not in gt and "aufschlüsseln" not in gt
+    assert "verweist auf Anlage 5." in gt and "Anteil" not in gt
+    assert "58722" in ska._zahlen_im_text(gt)
+
+
 def test_antwort_lesen_mit_zaun():
     roh = "Hier:\n```json\n" + json.dumps(GUT, ensure_ascii=False) + "\n```"
     assert ska.antwort_lesen(roh)["story_wert"] == 9

@@ -194,7 +194,14 @@ def regierungstext(text: str) -> str:
     if b:
         text = text[: b[0]] + "\n" + text[b[1]:]
     # Fragen raus: Saetze, die mit ? enden
-    return re.sub(r"[^.?!]*\?", " ", text)
+    return _FRAGE_RE.sub(" ", text)
+
+
+# Eine Frage reicht zurueck bis zum letzten Satzende. Kein Satzende sind ein Punkt
+# zwischen Ziffern (58.722, 30.09.2026) und kein Zeilenumbruch mitten im Satz; ein
+# Zeilenumbruch nach einer Ziffer schon (Tabellenzeile). Sonst frass die in der
+# Anlage wiederholte Frage die letzte Tabellenzeile davor mit ("18.693 58.722").
+_FRAGE_RE = re.compile(r"(?:[^.?!\n]|(?<=\d)\.(?=\d)|(?<!\d)\n)*\?")
 
 
 def pruefen(d: dict, text: str) -> tuple[dict | None, str | None]:
