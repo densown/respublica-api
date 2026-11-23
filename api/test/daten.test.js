@@ -138,6 +138,12 @@ test.before(async () => {
      (990003, '21/99003', 21, CURDATE(), 'Unterhaltsvorschuss', NULL, 'gruene',
       'Fraktion BÜNDNIS 90/DIE GRÜNEN', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL)`,
   );
+  // Zwei Kreise, der zweite dreimal so gross: gewichtet 20 %, ungewichtet 30 %
+  await db.query(
+    `INSERT INTO wahlen (typ, ags, election_year, election_type, round, eligible_voters, number_voters, valid_votes, turnout, spd, cdu_csu, winning_party) VALUES
+     ('federal', '01901', 1901, '', 0, 200, 100, 100, 0.5, 0.5, 0.3, 'spd'),
+     ('federal', '02901', 1901, '', 0, 400, 300, 300, 0.75, 0.1, 0.6, 'cdu_csu')`,
+  );
 });
 
 test.after(async () => {
@@ -390,4 +396,30 @@ test("Kleine Anfragen: Woche, Facetten, Detail", { skip }, async () => {
   const det = await agent.get("/api/kleine-anfragen/21/99001");
   assert.strictEqual(det.status, 200);
   assert.strictEqual(det.body.daten.schlagzeile, "Mehr Kriegsdienstverweigerer");
+});
+
+test("Wahlen: Gesamtergebnis nach Stimmen gewichtet", { skip }, async () => {
+  const res = await agent.get("/api/wahlen/gesamt?typ=federal&year=1901");
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(res.body.kreise, 2);
+  assert.strictEqual(res.body.gueltig, 400);
+  assert.ok(Math.abs(res.body.turnout - 400 / 600) < 1e-4);
+  const wert = (p) => res.body.parteien.find((x) => x.party === p)?.value;
+  assert.ok(Math.abs(wert("spd") - 0.2) < 1e-4);
+  assert.ok(Math.abs(wert("cdu_csu") - 0.525) < 1e-4);
+  assert.strictEqual(res.body.parteien[0].party, "cdu_csu");
+
+  const land = await agent.get("/api/wahlen/gesamt?typ=federal&year=1901&state=02");
+  assert.strictEqual(land.body.kreise, 1);
+  assert.ok(Math.abs(wert("spd") - 0.2) < 1e-4);
+  assert.ok(Math.abs(land.body.parteien.find((x) => x.party === "spd").value - 0.1) < 1e-4);
+
+  const leer = await agent.get("/api/wahlen/gesamt?typ=federal&year=1800");
+  assert.strictEqual(leer.status, 404);
+});
+
+test("Wahlen: Zeitreihe des Bundeswerts ist gewichtet", { skip }, async () => {
+  const res = await agent.get("/api/wahlen/national-average?typ=federal&party=spd");
+  const j = res.body.find((x) => x.year === 1901);
+  assert.ok(Math.abs(j.value - 0.2) < 1e-4);
 });

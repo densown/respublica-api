@@ -292,7 +292,31 @@ router.get("/wahlen/change", asyncHandler(async (req, res) => {
   res.json(out);
 }));
 
-/** Bundesweiter Durchschnitt pro Wahljahr (alle Kreise mit Wert) */
+const WAHlen_PARTEIEN = [
+  "cdu_csu", "spd", "gruene", "fdp", "linke_pds", "afd", "bsw",
+  "freie_waehler", "npd", "piraten", "die_partei", "other",
+];
+
+/**
+ * Anteil ueber mehrere Kreise, gewichtet mit den gueltigen Stimmen. Ein
+ * einfacher Durchschnitt der Kreiswerte zaehlt Zweibruecken so stark wie
+ * Berlin und weicht vom amtlichen Ergebnis ab (SPD 2025: 15,7 statt 16,4).
+ * Ohne Stimmenzahlen bleibt der einfache Durchschnitt.
+ */
+function gewichtetSql(col) {
+  const c = `\`${requireIdent(col, WAHlen_NUM_COLS)}\``;
+  if (col === "turnout") {
+    return `COALESCE(
+      SUM(CASE WHEN eligible_voters > 0 AND number_voters IS NOT NULL THEN number_voters END)
+        / NULLIF(SUM(CASE WHEN eligible_voters > 0 AND number_voters IS NOT NULL THEN eligible_voters END), 0),
+      AVG(turnout))`;
+  }
+  return `COALESCE(
+    SUM(${c} * valid_votes) / NULLIF(SUM(CASE WHEN ${c} IS NOT NULL THEN valid_votes END), 0),
+    AVG(${c}))`;
+}
+
+/** Anteil pro Wahljahr ueber alle Kreise mit Wert, nach Stimmen gewichtet */
 router.get("/wahlen/national-average", asyncHandler(async (req, res) => {
   const typ = wahlenParseTyp(req.query.typ);
   const party = String(req.query.party || "").trim().toLowerCase();
@@ -301,7 +325,7 @@ router.get("/wahlen/national-average", asyncHandler(async (req, res) => {
     return;
   }
   const sql = `
-    SELECT election_year AS year, AVG(\`${requireIdent(party, WAHlen_NUM_COLS)}\`) AS value
+    SELECT election_year AS year, ${gewichtetSql(party)} AS value
     FROM wahlen
     WHERE typ = ? AND \`${requireIdent(party, WAHlen_NUM_COLS)}\` IS NOT NULL
     GROUP BY election_year
@@ -313,6 +337,61 @@ router.get("/wahlen/national-average", asyncHandler(async (req, res) => {
     value: r.value != null ? Number(r.value) : null,
   }));
   res.json(out);
+}));
+
+/**
+ * Gesamtergebnis einer Wahl aus den Kreiswerten, nach Stimmen gewichtet.
+ * Optional `state` (zweistelliger Laenderschluessel, Anfang des AGS).
+ * Bundestagswahlen treffen das amtliche Ergebnis; bei Europawahlen liegt
+ * die Summe der Kreise leicht darunter, deshalb `quelle: "kreise"`.
+ */
+router.get("/wahlen/gesamt", asyncHandler(async (req, res) => {
+  const typ = wahlenParseTyp(req.query.typ);
+  const year = Number.parseInt(String(req.query.year || ""), 10);
+  const state = String(req.query.state || "").trim();
+  if (!typ || !Number.isFinite(year) || (state && !/^(0[1-9]|1[0-6])$/.test(state))) {
+    res.status(400).json({ error: "typ und year erforderlich, state zweistellig" });
+    return;
+  }
+  const params = [typ, year];
+  let wo = "typ = ? AND election_year = ?";
+  if (state) {
+    wo += " AND LEFT(LPAD(ags, IF(LENGTH(ags) IN (4, 7), LENGTH(ags) + 1, LENGTH(ags)), '0'), 2) = ?";
+    params.push(state);
+  }
+  const spalten = WAHlen_PARTEIEN.map((p) => `${gewichtetSql(p)} AS \`${p}\``).join(",\n      ");
+  const [[r]] = await getPool().query(
+    `SELECT COUNT(*) AS kreise,
+            SUM(eligible_voters) AS wahlberechtigte,
+            SUM(number_voters) AS waehler,
+            SUM(valid_votes) AS gueltig,
+            ${gewichtetSql("turnout")} AS turnout,
+      ${spalten}
+     FROM wahlen WHERE ${wo}`,
+    params,
+  );
+  const kreise = Number(r.kreise) || 0;
+  if (!kreise) {
+    res.status(404).json({ error: "keine Daten für diese Wahl" });
+    return;
+  }
+  const zahl = (v) => (v != null ? Number(v) : null);
+  res.json({
+    typ,
+    year,
+    state: state || null,
+    kreise,
+    wahlberechtigte: zahl(r.wahlberechtigte),
+    waehler: zahl(r.waehler),
+    gueltig: zahl(r.gueltig),
+    turnout: zahl(r.turnout),
+    gewichtet: zahl(r.gueltig) != null && zahl(r.gueltig) > 0,
+    quelle: "kreise",
+    parteien: WAHlen_PARTEIEN
+      .map((p) => ({ party: p, value: zahl(r[p]) }))
+      .filter((p) => p.value != null && p.value > 0)
+      .sort((x, y) => y.value - x.value),
+  });
 }));
 
 router.get("/wahlen/stats", asyncHandler(async (_req, res) => {
