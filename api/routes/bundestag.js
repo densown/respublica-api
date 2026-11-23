@@ -438,6 +438,79 @@ router.get("/bundestag/abstimmungen/:pollId", asyncHandler(async (req, res) => {
   });
 }));
 
+/**
+ * Drucksachennummern aus den Links einer Abstimmung, in den Schreibweisen,
+ * die im Lobbyregister vorkommen: "21/229", dazu mit fuehrenden Nullen.
+ */
+function drucksachenVarianten(links) {
+  const nummern = new Set();
+  for (const l of Array.isArray(links) ? links : []) {
+    const m = /(\d{1,2})\/0*(\d{1,6})/.exec(String(l?.dokument ?? ""));
+    if (m) nummern.add(`${Number(m[1])}/${Number(m[2])}`);
+  }
+  const varianten = new Set();
+  for (const n of nummern) {
+    const [wp, nr] = n.split("/");
+    varianten.add(n);
+    for (let stellen = nr.length + 1; stellen <= 6; stellen++) {
+      varianten.add(`${wp}/${nr.padStart(stellen, "0")}`);
+    }
+  }
+  return { nummern: [...nummern], varianten: [...varianten] };
+}
+
+/**
+ * Lobbyregister zur Abstimmung: Organisationen, die ein Regelungsvorhaben mit
+ * einer Drucksache dieser Abstimmung angegeben haben. Die Bruecke ist die
+ * Drucksachennummer (abstimmung_details.links und
+ * lobby_regulatory_projects.printing_number, nur Bundestag).
+ *
+ * Das ist die Selbstauskunft der Organisationen im Register: Sie haben das
+ * Vorhaben als Gegenstand ihrer Interessenvertretung genannt. Ob und wie sie
+ * Einfluss genommen haben, sagt der Eintrag nicht.
+ */
+router.get("/bundestag/abstimmungen/:pollId/lobby", asyncHandler(async (req, res) => {
+  const pollId = Number.parseInt(req.params.pollId, 10);
+  if (!Number.isFinite(pollId)) {
+    res.status(400).json({ error: "Ungültige poll_id" });
+    return;
+  }
+  const details = await abstimmungDetails(pollId);
+  const { nummern, varianten } = drucksachenVarianten(details.links);
+  if (!varianten.length) {
+    res.json({ drucksachen: [], organisationen: [], gesamt: 0 });
+    return;
+  }
+  const [rows] = await getPool().query(
+    `SELECT l.register_number, l.name, l.financial_expenses_euro,
+            COUNT(*) AS vorhaben,
+            MIN(lrp.title) AS titel,
+            MIN(lrp.project_url) AS project_url,
+            MIN(lrp.printing_number) AS drucksache
+       FROM lobby_regulatory_projects lrp
+       INNER JOIN lobbyregister l ON l.register_number = lrp.lobby_register_number
+      WHERE lrp.issuer = 'BT' AND lrp.printing_number IN (?)
+      GROUP BY l.register_number, l.name, l.financial_expenses_euro
+      ORDER BY l.financial_expenses_euro DESC, l.name
+      LIMIT 200`,
+    [varianten]
+  );
+  res.json({
+    drucksachen: nummern,
+    gesamt: rows.length,
+    organisationen: rows.map((r) => ({
+      register_number: r.register_number,
+      name: r.name,
+      financial_expenses_euro:
+        r.financial_expenses_euro == null ? null : Number(r.financial_expenses_euro),
+      vorhaben: Number(r.vorhaben) || 0,
+      titel: r.titel || null,
+      project_url: r.project_url || null,
+      drucksache: r.drucksache || null,
+    })),
+  });
+}));
+
 router.get("/bundestag/poll-votes/:poll_id", asyncHandler(async (req, res) => {
   const pollId = Number.parseInt(req.params.poll_id, 10);
   if (!Number.isFinite(pollId)) {
@@ -497,3 +570,4 @@ router.get("/abstimmungen/:poll_id", asyncHandler(async (req, res) => {
 
 
 module.exports = router;
+module.exports.drucksachenVarianten = drucksachenVarianten;
