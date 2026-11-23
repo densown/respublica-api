@@ -11,6 +11,11 @@ const test = require("node:test");
 const assert = require("node:assert");
 const request = require("supertest");
 
+// /api/seiten/html liest die index.html der gebauten App. Die gibt es in den
+// Tests nicht, daher eine kleine Vorlage.
+process.env.DASHBOARD_INDEX =
+  process.env.DASHBOARD_INDEX || require("path").join(__dirname, "fixtures", "index.html");
+
 const app = require("../index.js");
 const { getPool } = require("../lib/db");
 const agent = request(app);
