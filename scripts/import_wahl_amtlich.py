@@ -48,6 +48,15 @@ def url_kerg2(typ: str, jahr: int) -> str:
     return f"{BASIS}/bundestagswahlen/{jahr}/ergebnisse/opendata/btw{jj}/csv/kerg2.csv"
 
 
+# Ältere Europawahlen liegen nicht unter dem festen Open-Data-Pfad, sondern im Archiv.
+# 2009 fehlt mit Absicht: die Kreise von damals (Mecklenburg-Vorpommern vor der Reform 2011)
+# lassen sich nicht sauber auf den heutigen Gebietsstand umrechnen.
+EW_ARCHIV = {
+    2019: (f"{BASIS}/dam/jcr/5441f564-1f29-4971-9ae2-b8860c1724d1/ew19_kerg2.csv", "kerg2"),
+    2014: (f"{BASIS}/dam/jcr/b8f92809-3aa0-4391-953b-00de193ace43/ew14_kerg.csv", "kerg"),
+}
+
+
 def hole(url: str) -> bytes | None:
     """Lädt eine Datei. 404 heißt: noch nicht veröffentlicht (None)."""
     anfrage = urllib.request.Request(url, headers={"User-Agent": "wahl-import/1.0"})
@@ -134,11 +143,14 @@ def lade_wahl(typ: str, jahr: int, datei: str | None, summe: str | None, land: s
         return wa.text_aus_bytes(roh) if roh else None
 
     if typ == "european":
-        quelle = url_kerg2(typ, jahr)
+        quelle, form = EW_ARCHIV.get(jahr, (url_kerg2(typ, jahr), "kerg2"))
         text = lies(datei, quelle)
         if text is None:
             return None
-        wahl = wa.lies_kerg2(text, gebietsart="Kreis", stimme="1")
+        if form == "kerg" or text.lstrip("\ufeff").startswith("#"):
+            wahl = wa.lies_kerg_breit(text)
+        else:
+            wahl = wa.lies_kerg2(text, gebietsart="Kreis", stimme="1")
     elif typ == "federal":
         quelle = None if datei else finde_kreisdatei(jahr)
         text = lies(datei, quelle)
