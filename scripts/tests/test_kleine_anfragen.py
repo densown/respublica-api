@@ -145,6 +145,27 @@ def test_pruefen_lehnt_ab(aenderung, teil_des_grunds):
     assert teil_des_grunds in grund
 
 
+TABELLE = TEXT + """
+Tabelle 1: Antraege auf Kriegsdienstverweigerung
+Jahr Antraege Soldaten Reservisten Ungediente anerkannt abgelehnt
+2025 7.691 3 1 12 5.104 22
+2026 12.984 2 0 91 11763 18
+"""
+
+
+def test_zahlen_aus_tabellenzeilen_gelten_als_belegt():
+    # Leerzeichen zwischen Tabellenspalten sind keine Tausendertrenner
+    assert {"2026", "12984", "11763", "91", "18"} <= ska._zahlen_im_text("2026 12.984 2 0 91 27 11763 18")
+    d = {**GUT, "zusammenfassung": "2026 gingen 12.984 Anträge ein, 11.763 wurden anerkannt."}
+    felder, grund = ska.pruefen(d, TABELLE)
+    assert grund is None, grund
+
+
+def test_zahlen_mit_leerzeichen_als_tausendertrenner():
+    assert ska._zahlen("7 025 und 7\u00a0691") == {"7025", "7691"}
+    assert ska._zahlen("Stand 2026: 12.984") == {"2026", "12984"}
+
+
 def test_antwort_lesen_mit_zaun():
     roh = "Hier:\n```json\n" + json.dumps(GUT, ensure_ascii=False) + "\n```"
     assert ska.antwort_lesen(roh)["story_wert"] == 9
