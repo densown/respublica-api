@@ -11,6 +11,11 @@ const test = require("node:test");
 const assert = require("node:assert");
 const request = require("supertest");
 
+// /api/seiten/html liest die index.html der gebauten App. Die gibt es in den
+// Tests nicht, daher eine kleine Vorlage.
+process.env.DASHBOARD_INDEX =
+  process.env.DASHBOARD_INDEX || require("path").join(__dirname, "fixtures", "index.html");
+
 const app = require("../index.js");
 const { getPool } = require("../lib/db");
 const agent = request(app);
@@ -65,6 +70,7 @@ const EXPECT_200 = [
   "/api/kleine-anfragen/facetten",
   "/api/kleine-anfragen/woche",
   "/api/kleine-anfragen/woche?tage=30&top=5",
+  "/api/seiten/sitemap.xml",
 ];
 
 // Endpoints, die je nach Query 200/400/404 liefern duerfen, aber kein 5xx.
@@ -115,6 +121,11 @@ const NO_5XX = [
   "/api/kleine-anfragen?sort=kaputt",
   "/api/kleine-anfragen?min_wert=11",
   "/api/kleine-anfragen/woche?tage=0",
+  "/api/seiten/html",
+  "/api/seiten/html?pfad=/bundestag/999999999",
+  "/api/seiten/html?pfad=/bundestag/abgeordnete/999999999",
+  "/api/seiten/html?pfad=/gesetze/999999999",
+  "/api/seiten/html?pfad=/../etc/passwd",
 ];
 
 test("List-/Stats-Endpoints liefern 200", async (t) => {
