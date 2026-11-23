@@ -125,7 +125,7 @@ GUT = {
 def test_pruefen_behaelt_nur_belegte_kernzahlen():
     felder, grund = ska.pruefen(GUT, TEXT)
     assert grund is None
-    assert [k["wert"] for k in felder["kernzahlen"]] == ["7 025"]
+    assert [k["wert"] for k in felder["kernzahlen"]] == ["7.025"]
     assert felder["story_wert"] == 9
 
 
@@ -164,6 +164,28 @@ def test_zahlen_aus_tabellenzeilen_gelten_als_belegt():
 def test_zahlen_mit_leerzeichen_als_tausendertrenner():
     assert ska._zahlen("7 025 und 7\u00a0691") == {"7025", "7691"}
     assert ska._zahlen("Stand 2026: 12.984") == {"2026", "12984"}
+
+
+def test_zahlen_schreiben_einheitlich():
+    de = "Bis 30. September 2026 gingen 12.984 Anträge ein, darunter 11763 von Ungedienten; 5 332 offen, 749 Ende 2025."
+    assert ska.zahlen_schreiben(de, "de") == (
+        "Bis 30. September 2026 gingen 12.984 Anträge ein, darunter 11.763 von Ungedienten; 5.332 offen, 749 Ende 2025."
+    )
+    en = "By 30.09.2026, 12.984 applications, 11763 without service, 5 332 pending; 43.3 billion and 1.250 billion stay."
+    assert ska.zahlen_schreiben(en, "en") == (
+        "By 30.09.2026, 12,984 applications, 11,763 without service, 5,332 pending; 43.3 billion and 1.250 billion stay."
+    )
+    assert ska.zahlen_schreiben("Drucksache 21/8937, 1.000.000 Euro, 3,27 Mrd.", "de") == "Drucksache 21/8937, 1.000.000 Euro, 3,27 Mrd."
+
+
+def test_pruefen_vereinheitlicht_nach_der_pruefung():
+    d = {**GUT, "zusammenfassung_en": "By 30 September 2026, 7 025 applications were approved."}
+    felder, grund = ska.pruefen(d, TEXT)
+    assert grund is None
+    assert "7.025" in felder["zusammenfassung"] and "7.025" in felder["schlagzeile"]
+    assert "7,025" in felder["zusammenfassung_en"]
+    assert felder["kernzahlen"][0]["wert"] == "7.025"
+    assert "7 025" in felder["kernzahlen"][0]["zitat"]
 
 
 def test_antwort_lesen_mit_zaun():

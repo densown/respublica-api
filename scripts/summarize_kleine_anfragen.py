@@ -77,6 +77,8 @@ Regeln:
 - Wenn die Bundesregierung etwas nicht weiß, nicht erhebt oder nicht beantwortet, ist das eine Aussage: nenne es.
 - Zahlen exakt wie im Text, mit Bezugszeitraum und Stichtag. Rechne nicht selbst (keine eigenen Summen,
   Differenzen oder Prozentwerte), jede Zahl in deinem Text muss so in der Antwort stehen.
+- Schreibweise einheitlich, egal wie der Text sie setzt: Deutsch 12.984 (Punkt als Tausendertrenner),
+  Englisch 12,984 (Komma). Jahreszahlen ohne Trenner.
 
 Gib NUR ein JSON-Objekt zurück, ohne Erklärung davor oder danach:
 {{
@@ -155,6 +157,38 @@ def _zahlen_im_text(s: str) -> set[str]:
     return _zahlen(s) | {re.sub(r"\D", "", z) for z in _ZAHL_PUNKT_RE.findall(s or "")}
 
 
+_TRENNER = "[ \u00a0\u202f]"
+_GRUPPE_LEER = re.compile(r"(?<![\d.,])\d{1,3}(?:" + _TRENNER + r"\d{3})+(?![\d.,]?\d)")
+_GRUPPE_PUNKT = re.compile(r"(?<![\d.,])\d{1,3}(?:\.\d{3})+(?![\d.,]?\d)(?!\s*(?:million|billion|trillion|bn)\b)")
+_OHNE_TRENNER = re.compile(r"(?<![\d.,/])\d{5,}(?![\d.,]?\d)")
+
+
+def _gruppieren(ziffern: str, trenner: str) -> str:
+    teile = []
+    while len(ziffern) > 3:
+        teile.insert(0, ziffern[-3:])
+        ziffern = ziffern[:-3]
+    return trenner.join([ziffern] + teile)
+
+
+def zahlen_schreiben(s: str, sprache: str) -> str:
+    """Einheitliche Tausendertrenner: Deutsch 12.984, Englisch 12,984.
+
+    Der Volltext mischt "12.984", "11763" und "5 332"; das Modell uebernimmt das.
+    Im Englischen waere "12.984" falsch (12 Komma 984). Vierstellige Zahlen ohne
+    Trenner (Jahre) bleiben, die Zahlenpruefung vergleicht ohnehin nur Ziffern.
+    """
+    t = "." if sprache == "de" else ","
+
+    def neu(m: re.Match) -> str:
+        return _gruppieren(re.sub(r"\D", "", m.group(0)), t)
+
+    s = _GRUPPE_LEER.sub(neu, s)
+    if sprache == "en":
+        s = _GRUPPE_PUNKT.sub(neu, s)
+    return _OHNE_TRENNER.sub(neu, s)
+
+
 def regierungstext(text: str) -> str:
     b = ka.bereich_fragesteller(text)
     if b:
@@ -207,6 +241,12 @@ def pruefen(d: dict, text: str) -> tuple[dict | None, str | None]:
         if len(kern) >= MAX_KERNZAHLEN:
             break
     felder["kernzahlen"] = kern
+    # Erst nach der Pruefung vereinheitlichen, die Zitate bleiben woertlich
+    for k in ("zusammenfassung", "schlagzeile"):
+        felder[k] = zahlen_schreiben(felder[k], "de")
+    felder["zusammenfassung_en"] = zahlen_schreiben(felder["zusammenfassung_en"], "en")
+    for kz in kern:
+        kz["wert"] = zahlen_schreiben(kz["wert"], "de")
     return felder, None
 
 
