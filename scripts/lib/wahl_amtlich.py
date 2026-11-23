@@ -47,8 +47,11 @@ _PARTEI = {
     "bündnissahrawagenknecht": "bsw",
 }
 
-# Kreise, die die Quelle teilt, wir aber als einen fuehren.
-AGS_ZUSAMMEN = {"11100": "11000", "11200": "11000"}
+# Kreise, die die Quelle teilt oder noch unter altem Schluessel fuehrt, wir aber als einen fuehren.
+# Berlin Ost und West; Eisenach ging 2021 im Wartburgkreis auf, Goettingen und Osterode 2016 in 03159.
+# Die Tabelle `wahlen` fuehrt auch alte Wahlen auf dem heutigen Gebietsstand.
+AGS_ZUSAMMEN = {"11100": "11000", "11200": "11000",
+                "16056": "16063", "03152": "03159", "03156": "03159"}
 
 
 class FormatFehler(ValueError):
@@ -153,6 +156,56 @@ def lies_kerg2(text: str, *, gebietsart: str = "Kreis", stimme: str = "1") -> di
     if wahltag is None:
         raise FormatFehler("kerg2: kein Wahltag gefunden")
     return {"datum": wahltag, "status": _status(vorspann), "kreise": kreise,
+            "soll": bund if bund["valid"] else None}
+
+
+# ---------------------------------------------------------------------------
+# Bundeswahlleiterin: kerg.csv (breit, aeltere Wahlen): je Merkmal zwei Spalten,
+# links das Ergebnis, rechts die Vorperiode. Kreise haben 4- bis 5-stellige
+# Nummern, Laender 901 bis 916, der Bund 999.
+# ---------------------------------------------------------------------------
+
+def lies_kerg_breit(text: str) -> dict:
+    vorspann, rest = _zeilen_ab_kopf(text, "Nr;Gebiet;")
+    zeilen = list(csv.reader(io.StringIO("\n".join(rest)), delimiter=";"))
+    kopf = [k.strip() for k in zeilen[0]]
+    art = [k.strip() for k in zeilen[1]] if len(zeilen) > 1 else []
+    erste: dict[str, int] = {}
+    for i, name in enumerate(kopf):
+        if i >= 3 and name and name not in erste:
+            erste[name] = i
+    for name, i in erste.items():
+        if i >= len(art) or art[i] not in ("Endgültig", "Vorläufig"):
+            raise FormatFehler(f"kerg: Spalte {name!r} ist nicht das aktuelle Ergebnis")
+    i_ber = _index(kopf, "Wahlberechtigte")
+    i_wae = next((erste[n] for n in ("Wähler", "Wählende", "Wähler/-innen") if n in erste), None)
+    if i_wae is None:
+        raise FormatFehler("kerg: Spalte für die Wählenden fehlt")
+    i_ung, i_gue = erste.get("Ungültige"), erste.get("Gültige")
+    if i_ung is None or i_gue is None:
+        raise FormatFehler("kerg: Spalten Ungültige/Gültige fehlen")
+    fest = {i_ber, i_wae, i_ung, i_gue}
+    kreise: dict[str, dict] = {}
+    bund = _leerer_kreis()
+    for z in zeilen[2:]:
+        if len(z) <= i_gue:
+            continue
+        nr = z[0].strip()
+        if nr == "999":
+            ziel = bund
+        elif re.fullmatch(r"\d{4,5}", nr):
+            ziel = kreise.setdefault(nr.zfill(5), _leerer_kreis())
+        else:
+            continue
+        _nimm(ziel, zahl(z[i_ber]), zahl(z[i_wae]), zahl(z[i_ung]), zahl(z[i_gue]),
+              {name: zahl(z[i]) if i < len(z) else 0 for name, i in erste.items() if i not in fest})
+    datum = None
+    m = re.search(r"\((\d{1,2})\. (\w+) (\d{4})\)", " ".join(vorspann))
+    monate = ["januar", "februar", "märz", "april", "mai", "juni", "juli", "august", "september",
+              "oktober", "november", "dezember"]
+    if m and m.group(2).lower() in monate:
+        datum = date(int(m.group(3)), monate.index(m.group(2).lower()) + 1, int(m.group(1)))
+    return {"datum": datum, "status": _status(vorspann), "kreise": kreise,
             "soll": bund if bund["valid"] else None}
 
 

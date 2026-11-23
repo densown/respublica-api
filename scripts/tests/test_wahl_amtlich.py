@@ -108,3 +108,30 @@ def test_unbekannter_aufbau_ist_ein_formatfehler():
         wa.lies_kerg2("irgendwas;anderes\n1;2\n")
     with pytest.raises(wa.FormatFehler):
         wa.zahl("12,5")
+
+
+KERG_BREIT = """# (c) Der Bundeswahlleiter, Wiesbaden 2016
+# 
+# Wahl der Abgeordneten zum 8. Europäischen Parlament aus der Bundesrepublik Deutschland (25. Mai 2014)
+# Endgültige Ergebnisse sowie der Vorperiode nach kreisfreien Städten und Landkreisen
+# 
+Nr;Gebiet;gehört;Wahlberechtigte;Wahlberechtigte;Wähler;Wähler;Ungültige;Ungültige;Gültige;Gültige;CDU;CDU;SPD;SPD;GRÜNE;GRÜNE;CSU;CSU;Tierschutzpartei;Tierschutzpartei;
+;;zu;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;Endgültig;Vorperiode;
+1001;"Flensburg, Stadt";1;70929;69522;25350;22614;176;212;25174;22402;6446;6985;8161;5915;4380;3818;;;382;275;
+901;"Schleswig-Holstein";99;70929;69522;25350;22614;176;212;25174;22402;6446;6985;8161;5915;4380;3818;;;382;275;
+16056;"Eisenach, Stadt";16;100;90;50;40;1;1;49;39;20;10;10;10;5;5;;;1;1;
+16063;"Wartburgkreis";16;200;190;100;90;2;2;98;88;40;30;30;30;10;10;;;2;2;
+999;"Bundesgebiet";;71229;69802;25500;22744;179;215;25321;22529;6506;7025;8201;5955;4395;3833;;;385;278;
+"""
+
+
+def test_kerg_breit_nimmt_nur_das_aktuelle_ergebnis_und_legt_eisenach_zum_wartburgkreis():
+    w = wa.lies_kerg_breit(KERG_BREIT)
+    assert str(w["datum"]) == "2014-05-25" and w["status"] == "endgueltig"
+    kreise = wa.fasse_zusammen(w["kreise"])
+    assert set(kreise) == {"01001", "16063"}
+    f = kreise["01001"]
+    assert (f["eligible"], f["voters"], f["invalid"], f["valid"]) == (70929, 25350, 176, 25174)
+    assert f["stimmen"] == {"cdu_csu": 6446, "spd": 8161, "gruene": 4380}
+    assert kreise["16063"]["eligible"] == 300 and kreise["16063"]["stimmen"]["cdu_csu"] == 60
+    assert wa.pruefe(kreise, soll=w["soll"], erwartete_kreise=2) == []
