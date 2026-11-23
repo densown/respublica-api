@@ -78,7 +78,8 @@ function mapAntwort(r) {
     sachgebiete: jsonListe(r.sachgebiete),
     einzelfragen: r.einzelfragen,
     pdf_url: r.pdf_url,
-    dip_url: r.vorgang_id ? `https://dip.bundestag.de/vorgang/${r.vorgang_id}` : null,
+    // DIP braucht einen Titel-Teil im Pfad, "-" genuegt (ohne: "Seite nicht gefunden")
+    dip_url: r.vorgang_id ? `https://dip.bundestag.de/vorgang/-/${r.vorgang_id}` : null,
     volltext_vorhanden: Number(r.text_zeichen) > 0,
     nicht_erhoben: Number(r.nicht_erhoben) || 0,
     hat_anlage: Number(r.hat_anlage) === 1,
