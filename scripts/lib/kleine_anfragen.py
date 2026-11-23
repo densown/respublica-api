@@ -73,9 +73,11 @@ ANLAGE_RE = re.compile(
 FRAGE_DS_RE = re.compile(r"Drucksache\s+(\d{1,2}/\d{1,6})")
 EINZELFRAGEN_RE = re.compile(r"insgesamt\s+(\d+)\s+Einzelfragen", re.IGNORECASE)
 FRAGESTELLER_RE = re.compile(
-    r"auf die Kleine Anfrage der Abgeordneten\s+(.+?)\s+(?:und der Fraktion|der Fraktion|und der Gruppe)",
+    r"auf die Kleine Anfrage der Abgeordneten\s+(.{3,600}?)\s+(?:und\s+)?der\s+(?:Frak-?\s*tion|Gruppe)",
     re.IGNORECASE | re.DOTALL,
 )
+# Ein Name ist kurz und hat keine Ziffern; sonst hat die Suche Fliesstext erwischt
+_NAME_RE = re.compile(r"^[^\d–\-:;()\[\]]{3,60}$")
 
 # Gesperrte Ueberschrift im Volltext: "V o r b e m e r k u n g  d e r  F r a g e s t e l l e r"
 _SPERR = lambda wort: r"\s*".join(wort)  # noqa: E731
@@ -130,8 +132,12 @@ def fragesteller(text: str | None) -> list[str]:
     namen = []
     for teil in re.split(r",\s*", roh):
         teil = re.sub(r"\s+weiterer Abgeordneter.*$", "", teil).strip(" ,")
-        if teil and not teil.lower().startswith("weiterer"):
-            namen.append(teil)
+        if not teil or teil.lower().startswith("weiterer"):
+            continue
+        if not _NAME_RE.match(teil.replace("-", "")) or len(teil.split()) > 6:
+            # Fliesstext statt Namensliste (z. B. 21/45): lieber gar keine Namen
+            return []
+        namen.append(teil)
     return namen
 
 

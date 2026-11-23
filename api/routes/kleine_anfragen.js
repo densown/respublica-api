@@ -73,7 +73,8 @@ function mapAntwort(r) {
     frage_dokumentnummer: r.frage_dokumentnummer,
     fraktion: r.fraktion,
     fraktion_name: FRAKTIONEN[r.fraktion] || r.initiative || null,
-    fragesteller: jsonListe(r.fragesteller),
+    // Altbestand kann Fliesstext statt Namen enthalten (Kopf falsch gelesen, z. B. 21/45)
+    fragesteller: jsonListe(r.fragesteller).filter((n) => typeof n === "string" && n.length <= 60 && !/\d/.test(n)),
     ressort: r.ressort,
     sachgebiete: jsonListe(r.sachgebiete),
     einzelfragen: r.einzelfragen,
