@@ -37,6 +37,14 @@ _PARTEI = {
     "freiewähler": "freie_waehler", "freiewaehler": "freie_waehler",
     "piraten": "piraten",
     "diepartei": "die_partei",
+    # Langformen (Saarland)
+    "christlichdemokratischeuniondeutschlands": "cdu_csu",
+    "sozialdemokratischeparteideutschlands": "spd",
+    "alternativefürdeutschland": "afd",
+    "bündnis90/diegrünen": "gruene",
+    "freiedemokratischepartei": "fdp",
+    "piratenparteideutschland": "piraten",
+    "bündnissahrawagenknecht": "bsw",
 }
 
 # Kreise, die die Quelle teilt, wir aber als einen fuehren.
@@ -200,6 +208,285 @@ def lies_btw_kreis(text: str) -> dict:
             if i < len(z):
                 k["stimmen"][ziel] = k["stimmen"].get(ziel, 0) + zahl(z[i])
     return {"datum": None, "status": _status(vorspann), "kreise": kreise, "soll": None}
+
+
+# ---------------------------------------------------------------------------
+# Landtagswahlen: je Land ein Leser. Gezaehlt wird die Stimme, nach der die
+# Sitze verteilt werden (Zweit- bzw. Landesstimme).
+# ---------------------------------------------------------------------------
+
+def _nimm(ziel: dict, ber, wae, ung, gue, parteien: dict[str, int]) -> None:
+    ziel["eligible"] += ber
+    ziel["voters"] += wae
+    ziel["invalid"] += ung
+    ziel["valid"] += gue
+    for name, n in parteien.items():
+        spalte = partei_spalte(name)
+        if spalte:
+            ziel["stimmen"][spalte] = ziel["stimmen"].get(spalte, 0) + n
+
+
+def _index(kopf: list[str], name: str) -> int:
+    try:
+        return kopf.index(name)
+    except ValueError:
+        raise FormatFehler(f"Spalte {name!r} fehlt") from None
+
+
+def lies_xlsx(roh: bytes, blatt: str | None = None) -> list[list]:
+    """Liest ein Blatt einer XLSX-Datei ohne openpyxl (auf dem Server nicht installiert)."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+          "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "p": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    with zipfile.ZipFile(io.BytesIO(roh)) as z:
+        texte: list[str] = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                texte.append("".join(t.text or "" for t in si.iter(f"{{{ns['m']}}}t")))
+        buch = ET.fromstring(z.read("xl/workbook.xml"))
+        bez = {r.get("Id"): r.get("Target") for r in ET.fromstring(z.read("xl/_rels/workbook.xml.rels")).findall("p:Relationship", ns)}
+        ziel = None
+        for sh in buch.find("m:sheets", ns):
+            if blatt is None or sh.get("name") == blatt:
+                ziel = bez[sh.get(f"{{{ns['r']}}}id")]
+                break
+        if ziel is None:
+            raise FormatFehler(f"Blatt {blatt!r} fehlt")
+        pfad = ziel.lstrip("/") if ziel.startswith("/") else "xl/" + ziel
+        zeilen: list[list] = []
+        for row in ET.fromstring(z.read(pfad)).iter(f"{{{ns['m']}}}row"):
+            werte: list = []
+            for c in row.findall("m:c", ns):
+                buchstaben = re.match(r"[A-Z]+", c.get("r", "A")).group(0)
+                spalte = 0
+                for b in buchstaben:
+                    spalte = spalte * 26 + ord(b) - 64
+                while len(werte) < spalte:
+                    werte.append(None)
+                v = c.find("m:v", ns)
+                art = c.get("t")
+                if art == "s" and v is not None:
+                    wert = texte[int(v.text)]
+                elif art == "inlineStr":
+                    wert = "".join(t.text or "" for t in c.iter(f"{{{ns['m']}}}t"))
+                elif v is None or v.text is None:
+                    wert = None
+                elif art in ("str", "b", "e"):
+                    wert = v.text
+                else:
+                    f = float(v.text)
+                    wert = int(f) if f == int(f) else f
+                werte[spalte - 1] = wert
+            zeilen.append(werte)
+        return zeilen
+
+
+def _ganz(wert) -> int:
+    if wert is None or wert == "":
+        return 0
+    if isinstance(wert, (int, float)):
+        if wert != int(wert):
+            raise FormatFehler(f"keine ganze Zahl: {wert!r}")
+        return int(wert)
+    return zahl(wert)
+
+
+# Baden-Wuerttemberg 2026: die Datei nennt die Parteien nur als F1 bis F21.
+# Zuordnung ueber die Landessummen mit der Ergebnisseite abgeglichen.
+BW_2026_F = {"F1": "GRÜNE", "F2": "CDU", "F3": "SPD", "F4": "FDP", "F5": "AfD", "F6": "Die Linke",
+             "F7": "FREIE WÄHLER", "F8": "Die PARTEI", "F16": "BSW"}
+# Gemeinsame Briefwahlbezirke ohne Gemeinde, die die Gebietsnummer nicht verraet.
+BW_BRIEF_NACH_NAME = {"ADK": "08425"}
+
+
+def lies_bw(text: str, f_spalten: dict[str, str] = BW_2026_F) -> dict:
+    zeilen = list(csv.reader(io.StringIO(text.lstrip("\ufeff")), delimiter=";"))
+    kopf = [k.strip() for k in zeilen[0]]
+    i_ags, i_art, i_nr, i_name = (_index(kopf, n) for n in ("AGS", "Gebietsart", "Gebietsnummer", "Gebietsname"))
+    i_ber, i_wae = _index(kopf, "Wahlberechtigte gesamt (A)"), _index(kopf, "Waehler gesamt (B)")
+    i_ung, i_gue = _index(kopf, "Zweitstimmen ungueltige (E)"), _index(kopf, "Zweitstimmen gueltige (F)")
+    i_f = {name: _index(kopf, f) for f, name in f_spalten.items()}
+    kreise: dict[str, dict] = {}
+    soll = _leerer_kreis()
+    for z in zeilen[1:]:
+        if len(z) <= i_gue:
+            continue
+        art, ags = z[i_art].strip(), z[i_ags].strip()
+        if art == "LAND":
+            ziel = soll
+        elif art == "GEMEINDE" or (art == "WAHLKREIS" and ags):
+            if not re.fullmatch(r"08\d{6}", ags):
+                raise FormatFehler(f"BW: unerwarteter AGS {ags!r}")
+            ziel = kreise.setdefault(ags[:5], _leerer_kreis())
+        elif art == "BRIEFWAHLBEZIRK" and not re.fullmatch(r"\d{8}", ags):
+            m = re.search(r"08[1-4]\d{2}", z[i_nr])
+            kreis = m.group(0) if m else next(
+                (k for anfang, k in BW_BRIEF_NACH_NAME.items() if z[i_name].strip().startswith(anfang)), None)
+            if not kreis:
+                raise FormatFehler(f"BW: Briefwahlbezirk {z[i_name]!r} lässt sich keinem Kreis zuordnen")
+            ziel = kreise.setdefault(kreis, _leerer_kreis())
+        else:
+            continue
+        _nimm(ziel, zahl(z[i_ber]), zahl(z[i_wae]), zahl(z[i_ung]), zahl(z[i_gue]),
+              {name: zahl(z[i]) for name, i in i_f.items()})
+    return {"datum": None, "status": None, "kreise": kreise, "soll": soll if soll["valid"] else None}
+
+
+def lies_rp(zeilen: list[list]) -> dict:
+    """Rheinland-Pfalz: XLSX, Kuerzel in Zeile 5, Parteinamen in Zeile 3, gezaehlt werden Landesstimmen."""
+    kuerzel = next((z for z in zeilen[:8] if z and "A1" in z and "F1" in z), None)
+    if kuerzel is None:
+        raise FormatFehler("RP: Zeile mit den Kürzeln (A1 … F1) fehlt")
+    namen = next((z for z in zeilen[:8] if z and "SPD" in z), None)
+    if namen is None:
+        raise FormatFehler("RP: Zeile mit den Parteinamen fehlt")
+    pos = {str(k).strip(): i for i, k in enumerate(kuerzel) if k and str(k).strip() != "%"}
+    for k in ("A", "B", "E", "F"):
+        if k not in pos:
+            raise FormatFehler(f"RP: Spalte {k} fehlt")
+    parteien = {str(namen[i]).strip(): i for k, i in pos.items()
+                if re.fullmatch(r"F\d+", k) and i < len(namen) and namen[i]}
+    kreise: dict[str, dict] = {}
+    soll = _leerer_kreis()
+    start = zeilen.index(kuerzel) + 1
+    for z in zeilen[start:]:
+        if len(z) <= pos["F"] or z[pos["F"]] is None:
+            continue
+        schluessel = str(z[0] or "").strip()
+        if re.fullmatch(r"\d{3}", schluessel):
+            ziel = kreise.setdefault("07" + schluessel, _leerer_kreis())
+        elif not schluessel and str(z[2] or "").strip().upper() in ("RLP", "RHEINLAND-PFALZ"):
+            ziel = soll
+        else:
+            continue
+        _nimm(ziel, _ganz(z[pos["A"]]), _ganz(z[pos["B"]]), _ganz(z[pos["E"]]), _ganz(z[pos["F"]]),
+              {name: _ganz(z[i]) if i < len(z) else 0 for name, i in parteien.items()})
+    return {"datum": None, "status": None, "kreise": kreise, "soll": soll if soll["valid"] else None}
+
+
+def lies_st(text: str) -> dict:
+    """Sachsen-Anhalt: Spalten nach Namen, Zeilen KRS mit Wahllokal '' sind die Kreissummen."""
+    leser = csv.DictReader(io.StringIO(text.lstrip("\ufeff")), delimiter=";")
+    kopf = leser.fieldnames or []
+    for n in ("Satzart", "Schlüsselnummer", "Wahllokal", "A.Wahlberechtigte", "B.Wähler",
+              "E.Ungültige.Zweitstimmen", "F.Gültige.Zweitstimmen"):
+        _index(kopf, n)
+    f_spalten = {k: k.split(".", 1)[1] for k in kopf if re.match(r"F\d+\.", k)}
+    kreise: dict[str, dict] = {}
+    soll = _leerer_kreis()
+    status = None
+    for z in leser:
+        if (z["Wahllokal"] or "") != "":
+            continue
+        status = status or {"E": "endgueltig", "V": "vorlaeufig"}.get((z.get("Ergebnisart") or "").strip())
+        if z["Satzart"] == "KRS":
+            ziel = kreise.setdefault(z["Schlüsselnummer"].strip().zfill(5), _leerer_kreis())
+        elif z["Satzart"] == "LAN":
+            ziel = soll
+        else:
+            continue
+        _nimm(ziel, zahl(z["A.Wahlberechtigte"]), zahl(z["B.Wähler"]), zahl(z["E.Ungültige.Zweitstimmen"]),
+              zahl(z["F.Gültige.Zweitstimmen"]), {name: zahl(z[k]) for k, name in f_spalten.items()})
+    return {"datum": None, "status": status, "kreise": kreise, "soll": soll if soll["valid"] else None}
+
+
+def _mv_zeilen(text: str) -> tuple[list[str], list[list[str]], str | None]:
+    vorspann, rest = _zeilen_ab_kopf(text, "Berechnungsdatum;")
+    kopf = [k.strip() for k in rest[0].split(";")]
+    return kopf, [z.split(";") for z in rest[1:] if z.strip()], _status(vorspann)
+
+
+def lies_mv(text: str, wahlkreise_text: str | None = None) -> dict:
+    """Mecklenburg-Vorpommern: Gemeinden zu Kreisen summieren, Briefwahl der Aemter zaehlt mit.
+
+    Die Landessumme steht nicht in der Gemeindedatei, sondern in l_wahlkreise.csv (Wahlkreis 99).
+    """
+    def lies(t: str, schluessel: str):
+        kopf, zeilen, status = _mv_zeilen(t)
+        i_k, i_aus, i_st = _index(kopf, schluessel), _index(kopf, "Ausgabe"), _index(kopf, "Erst-/Zweitstimme")
+        i_ber, i_wae = _index(kopf, "Wahlberechtigte"), _index(kopf, "Wähler")
+        i_ung, i_gue = _index(kopf, "Ungültige Stimmen"), _index(kopf, "Gültige Stimmen")
+        for z in zeilen:
+            if len(z) < len(kopf) or z[i_aus].strip() != "A" or z[i_st].strip() != "2":
+                continue
+            yield z[i_k].strip(), (zahl(z[i_ber]), zahl(z[i_wae]), zahl(z[i_ung]), zahl(z[i_gue]),
+                                   {kopf[i]: zahl(z[i]) for i in range(i_gue + 1, len(kopf))}), status
+
+    kreise: dict[str, dict] = {}
+    status = None
+    for kreis, werte, status in lies(text, "Kreis"):
+        if not re.fullmatch(r"\d{1,2}", kreis):
+            raise FormatFehler(f"MV: unerwartete Kreisnummer {kreis!r}")
+        _nimm(kreise.setdefault("130" + kreis.zfill(2), _leerer_kreis()), *werte)
+    soll = None
+    if wahlkreise_text:
+        for nummer, werte, _ in lies(wahlkreise_text, "Wahlkreis"):
+            if nummer == "99":
+                soll = _leerer_kreis()
+                _nimm(soll, *werte)
+    return {"datum": None, "status": status, "kreise": kreise, "soll": soll}
+
+
+def lies_be(zeilen: list[list]) -> dict:
+    """Berlin: Blatt AGH_W2 (Zweitstimmen je Wahlbezirk), alles zu 11000 summiert.
+
+    Die Datei hat keine Landeszeile. Berlin ist ein einziger Kreis, die Summe
+    aller Wahlbezirke ist also selbst das Landesergebnis.
+    """
+    kopf = [re.sub(r"\s+", " ", str(k or "")).strip() for k in zeilen[0]]
+    i_ber, i_wae = _index(kopf, "Wahlberechtigte insgesamt"), _index(kopf, "Wählende")
+    i_gue, i_ung = _index(kopf, "Gültige Stimmen"), _index(kopf, "Ungültige Stimmen")
+    erste_partei = max(i_gue, i_ung) + 1
+    berlin = _leerer_kreis()
+    n = 0
+    for z in zeilen[1:]:
+        if len(z) <= i_ung or z[i_wae] is None:
+            continue
+        if str(z[0] or "").strip() != "Zweitstimme":
+            raise FormatFehler(f"Berlin: unerwartete Stimmart {z[0]!r}")
+        n += 1
+        _nimm(berlin, _ganz(z[i_ber]), _ganz(z[i_wae]), _ganz(z[i_ung]), _ganz(z[i_gue]),
+              {kopf[i]: _ganz(z[i]) if i < len(z) else 0 for i in range(erste_partei, len(kopf)) if kopf[i]})
+    if n < 1000:
+        raise FormatFehler(f"Berlin: nur {n} Wahlbezirke, erwartet über 1000")
+    soll = {**berlin, "stimmen": dict(berlin["stimmen"])}
+    return {"datum": None, "status": None, "kreise": {"11000": berlin}, "soll": soll}
+
+
+def lies_sl(text: str) -> dict:
+    """Saarland: breite Datei, je Merkmal 'Endgültig' und rechts daneben 'Vorperiode'. Eine Stimme."""
+    vorspann, rest = _zeilen_ab_kopf(text, "Nr;Gebiet;")
+    zeilen = [z.split(";") for z in rest]
+    kopf = [k.strip() for k in zeilen[0]]
+    if len(zeilen) < 4 or "Vorperiode" not in zeilen[2]:
+        raise FormatFehler("Saarland: Kopfzeilen sehen anders aus als erwartet")
+    art = [k.strip() for k in zeilen[2]]
+    spalten = {name: i for i, name in enumerate(kopf) if name and i >= 3}
+    for i in spalten.values():
+        if i < len(art) and art[i] not in ("Endgültig", "Vorläufig"):
+            raise FormatFehler(f"Saarland: Spalte {i} ist nicht das aktuelle Ergebnis ({art[i]!r})")
+    i_ber, i_wae = _index(kopf, "Wahlberechtigte"), _index(kopf, "Wähler")
+    i_ung, i_gue = _index(kopf, "Ungültige Stimmen"), _index(kopf, "Gültige Stimmen")
+    fest = {i_ber, i_wae, i_ung, i_gue}
+    kreise: dict[str, dict] = {}
+    soll = _leerer_kreis()
+    for z in zeilen[3:]:
+        if len(z) <= i_gue:
+            continue
+        nr = z[0].strip()
+        if re.fullmatch(r"4\d{4}", nr):
+            ziel = kreise.setdefault("100" + nr[:2], _leerer_kreis())
+        elif nr == "10":
+            ziel = soll
+        else:
+            continue
+        _nimm(ziel, zahl(z[i_ber]), zahl(z[i_wae]), zahl(z[i_ung]), zahl(z[i_gue]),
+              {name: zahl(z[i]) for name, i in spalten.items() if i not in fest})
+    status = "vorlaeufig" if "Vorläufig" in art else _status(vorspann) or "endgueltig"
+    return {"datum": None, "status": status, "kreise": kreise, "soll": soll if soll["valid"] else None}
 
 
 # ---------------------------------------------------------------------------

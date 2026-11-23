@@ -253,7 +253,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |
 | `import_diffs_to_db.py` | `data/diffs/YYYY-MM-DD.json` → MariaDB |
 | `import_wahlen.py` | GERDA/Wahldaten-CSV → `wahlen` |
-| `import_wahl_amtlich.py` | Amtliche Kreisergebnisse von Bundestags- und Europawahl (Dateien der Bundeswahlleiterin) → `wahlen`. Ohne `--schreiben` nur Prüfung und Vergleich; schreibt nur bei bestandenen Prüfungen (Zahl der Kreise, Summen gegen die amtliche Gesamtzeile). `--auto` für Cron (Fragment: `config/wahl-amtlich.cron.fragment`, noch nicht eingebaut). Leser in `scripts/lib/wahl_amtlich.py` |
+| `import_wahl_amtlich.py` | Amtliche Kreisergebnisse von Bundestags- und Europawahl (Dateien der Bundeswahlleiterin) und von Landtagswahlen (`state JJJJ --land NN`, je Wahl ein Leser in `LAENDER`) → `wahlen`. Ohne `--schreiben` nur Prüfung und Vergleich; schreibt nur bei bestandenen Prüfungen (Zahl der Kreise, Summen gegen die amtliche Gesamtzeile). `--auto` für Cron (Fragment: `config/wahl-amtlich.cron.fragment`, noch nicht eingebaut). Leser in `scripts/lib/wahl_amtlich.py` |
 | `import_world_indicators.py` | World-Bank-artige Indikatoren → `world_indicators` |
 | `import_baci.py` | CEPII BACI HS17 (2017-2024) → `trade_flows_v2` inkl. `TOTAL`, Sections I-XXI und `OTHER` mit Audit-Context in `data_update_log` |
 | `match_abstimmungen.py` | DIP-Abgleich `aenderungen` ↔ `abstimmungen` |
