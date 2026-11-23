@@ -128,12 +128,12 @@ test.before(async () => {
         zusammenfassung, schlagzeile, kernzahlen, story_wert, story_grund, ki_am)
      VALUES
      (990001, '21/99001', 21, CURDATE(), 'Regionale Verteilung der Kriegsdienstverweigerung', 990101, 'linke',
-      'Fraktion DIE LINKE', '["Erika Muster"]', 'Bundesministerium der Verteidigung', '["Verteidigung"]',
+      'Fraktion DIE LINKE', '["Dr. Erika Muster", "Unbekannte Person"]', 'Bundesministerium der Verteidigung', '["Verteidigung"]',
       '["Kriegsdienstverweigerung"]', 'Im Jahr 2026 wurden 7 025 Anträge auf Kriegsdienstverweigerung anerkannt.', 75, 0,
       'Die Bundesregierung meldet 7 025 anerkannte Anträge.', 'Mehr Kriegsdienstverweigerer',
       '[{"wert":"7 025","einheit":"Anträge","bedeutung":"anerkannt 2026","zitat":"7 025 Anträge"}]', 9, 'Neue Zahl', NOW()),
      (990002, '21/99002', 21, '2025-06-01', 'Abschiebungen nach Afghanistan', 990102, 'afd',
-      'Fraktion der AfD', NULL, 'Bundesministerium des Innern', '["Innere Sicherheit","Migration"]',
+      'Fraktion der AfD', '["Max Muster"]', 'Bundesministerium des Innern', '["Innere Sicherheit","Migration"]',
       '[]', 'Daten werden statistisch nicht erfasst.', 40, 4, NULL, NULL, NULL, NULL, NULL, NULL),
      (990003, '21/99003', 21, CURDATE(), 'Unterhaltsvorschuss', NULL, 'gruene',
       'Fraktion BÜNDNIS 90/DIE GRÜNEN', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL)`,
@@ -357,6 +357,25 @@ test("Kleine Anfragen: Filter Fraktion, Sachgebiet, Nicht-Wissen", { skip }, asy
   assert.strictEqual(ohne.volltext_vorhanden, false);
   assert.strictEqual(ohne.ausgewertet, false);
   assert.deepStrictEqual(ohne.sachgebiete, []);
+});
+
+test("Kleine Anfragen: Fragesteller mit Abgeordneten verknuepft", { skip }, async () => {
+  const det = await agent.get("/api/kleine-anfragen/21/99001");
+  assert.deepStrictEqual(det.body.daten.fragesteller_mdb, [
+    { name: "Dr. Erika Muster", aw_id: 99001 },
+    { name: "Unbekannte Person", aw_id: null },
+  ]);
+  let res = await agent.get("/api/kleine-anfragen?abgeordneter=99001");
+  assert.strictEqual(res.status, 200);
+  assert.deepStrictEqual(kaIds(res.body), ["21/99001"]);
+  assert.strictEqual(res.body.abgeordneter.name, "Erika Muster");
+  // gleicher Nachname, andere Person
+  res = await agent.get("/api/kleine-anfragen?abgeordneter=99002");
+  assert.deepStrictEqual(kaIds(res.body), ["21/99002"]);
+  res = await agent.get("/api/kleine-anfragen?abgeordneter=99003");
+  assert.deepStrictEqual(kaIds(res.body), []);
+  res = await agent.get("/api/kleine-anfragen?abgeordneter=12345678");
+  assert.strictEqual(res.status, 400);
 });
 
 test("Kleine Anfragen: Woche, Facetten, Detail", { skip }, async () => {

@@ -15,6 +15,11 @@
  *   GET /kleine-anfragen/facetten   Zaehlungen fuer die Filter
  *   GET /kleine-anfragen/woche      Top-Antworten der letzten Tage nach story_wert
  *   GET /kleine-anfragen/:wp/:nr    eine Antwort (Drucksache wp/nr, z. B. 21/8937)
+ *
+ * Fragesteller werden per Name auf Abgeordnete der Wahlperiode abgebildet
+ * (`fragesteller_mdb`, Link zum Profil), und `?abgeordneter=<aw_id>` filtert
+ * auf die Anfragen einer Person. Ohne eigene Tabelle: der Name steht im Kopf
+ * der Drucksache, die Zuordnung geschieht beim Ausliefern.
  */
 
 const express = require("express");
@@ -42,6 +47,63 @@ const FRAKTIONEN = Object.freeze({
   mehrere: "mehrere",
   sonstige: "sonstige",
 });
+const BUNDESTAG_PERIOD = 161;
+
+/**
+ * Name fuer den Vergleich: Kleinbuchstaben, ohne Akzente, ohne Titel
+ * ("Dr.", "Prof.", "h. c."), Bindestrich ohne Leerraum ("Anne- Mieke").
+ */
+function nameSchluessel(name) {
+  return String(name ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s*-\s*/g, "-")
+    .split(/\s+/)
+    .filter((w) => w && !w.endsWith(".") && !["prof", "dr"].includes(w))
+    .join(" ");
+}
+
+/** Vorname und Nachname ohne zweite Vornamen ("udo theodor hemmelgarn" -> "udo hemmelgarn"). */
+function kurzSchluessel(schluessel) {
+  const w = schluessel.split(" ");
+  return w.length > 2 ? `${w[0]} ${w[w.length - 1]}` : schluessel;
+}
+
+let mdbCache = { bis: 0, index: null };
+
+/** Map Schluessel -> {aw_id, name}; mehrdeutige Schluessel fallen raus. */
+async function mdbIndex(pool) {
+  if (mdbCache.index && mdbCache.bis > Date.now()) return mdbCache.index;
+  const [rows] = await pool.query(
+    `SELECT aw_id, name FROM abgeordnete
+      WHERE parliament_period = ? AND typ = 'mandat' AND aw_id IS NOT NULL AND name IS NOT NULL`,
+    [BUNDESTAG_PERIOD],
+  );
+  const index = new Map();
+  const doppelt = new Set();
+  const setze = (k, wert) => {
+    if (!k) return;
+    const alt = index.get(k);
+    if (alt && alt.aw_id !== wert.aw_id) doppelt.add(k);
+    else index.set(k, wert);
+  };
+  for (const r of rows) {
+    const k = nameSchluessel(r.name);
+    const wert = { aw_id: r.aw_id, name: r.name };
+    setze(k, wert);
+    setze(kurzSchluessel(k), wert);
+  }
+  for (const k of doppelt) index.delete(k);
+  mdbCache = { bis: Date.now() + 10 * 60 * 1000, index };
+  return index;
+}
+
+function findeMdb(index, name) {
+  const k = nameSchluessel(name);
+  return index.get(k) || index.get(kurzSchluessel(k)) || null;
+}
+
 const SORTIERUNGEN = new Set(["datum", "wert", "relevanz"]);
 const DATUM_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -63,7 +125,10 @@ function jsonListe(s) {
   }
 }
 
-function mapAntwort(r) {
+function mapAntwort(r, index) {
+  const fragesteller = jsonListe(r.fragesteller).filter(
+    (n) => typeof n === "string" && n.length <= 60 && !/\d/.test(n),
+  );
   return {
     id: r.id,
     dokumentnummer: r.dokumentnummer,
@@ -74,7 +139,11 @@ function mapAntwort(r) {
     fraktion: r.fraktion,
     fraktion_name: FRAKTIONEN[r.fraktion] || r.initiative || null,
     // Altbestand kann Fliesstext statt Namen enthalten (Kopf falsch gelesen, z. B. 21/45)
-    fragesteller: jsonListe(r.fragesteller).filter((n) => typeof n === "string" && n.length <= 60 && !/\d/.test(n)),
+    fragesteller,
+    fragesteller_mdb: fragesteller.map((name) => {
+      const m = index ? findeMdb(index, name) : null;
+      return { name, aw_id: m ? m.aw_id : null };
+    }),
     ressort: r.ressort,
     sachgebiete: jsonListe(r.sachgebiete),
     einzelfragen: r.einzelfragen,
@@ -195,6 +264,31 @@ function buildFilter(query) {
   return { where, params, match, erstesWort };
 }
 
+/**
+ * Filter auf die Anfragen einer oder eines Abgeordneten. Vorauswahl per
+ * Nachname im JSON-Text, dann exakter Namensvergleich wie bei der Anzeige,
+ * damit Titel, zweite Vornamen und Schreibweisen gleich behandelt werden.
+ */
+async function abgeordneterFilter(pool, index, awId, f) {
+  const [[mdb]] = await pool.query(
+    `SELECT aw_id, name, nachname, fraktion FROM abgeordnete
+      WHERE aw_id = ? AND parliament_period = ? AND typ = 'mandat' LIMIT 1`,
+    [awId, BUNDESTAG_PERIOD],
+  );
+  if (!mdb) throw new ValidationError("abgeordneter unbekannt");
+  const nachname = String(mdb.nachname || String(mdb.name).split(" ").pop() || "").replace(/[%_\\]/g, "");
+  const [kandidaten] = await pool.query(
+    "SELECT id, fragesteller FROM kleine_anfragen WHERE fragesteller LIKE ?",
+    [`%${nachname}%`],
+  );
+  const ids = kandidaten
+    .filter((r) => jsonListe(r.fragesteller).some((n) => findeMdb(index, n)?.aw_id === mdb.aw_id))
+    .map((r) => r.id);
+  f.where.push(ids.length ? `k.id IN (${ids.map(() => "?").join(",")})` : "FALSE");
+  f.params.push(...ids);
+  f.mdb = { aw_id: mdb.aw_id, name: mdb.name, fraktion: mdb.fraktion };
+}
+
 const whereSql = (where) => (where.length ? `WHERE ${where.join(" AND ")}` : "");
 
 router.get(
@@ -202,6 +296,11 @@ router.get(
   asyncHandler(async (req, res) => {
     const { limit, offset } = parsePagination(req.query, { defLimit: 30, maxLimit: 100 });
     const f = buildFilter(req.query);
+    const pool = getPool();
+    const index = await mdbIndex(pool);
+    if (req.query.abgeordneter != null && String(req.query.abgeordneter).trim() !== "") {
+      await abgeordneterFilter(pool, index, parseIntParam(req.query.abgeordneter, "abgeordneter"), f);
+    }
     let sort = String(req.query.sort ?? "").trim().toLowerCase() || (f.match ? "relevanz" : "datum");
     if (!SORTIERUNGEN.has(sort)) throw new ValidationError("sort ungültig");
     if (sort === "relevanz" && !f.match) sort = "datum";
@@ -228,7 +327,6 @@ router.get(
       relevanz: "relevanz DESC, k.datum DESC",
     }[sort];
 
-    const pool = getPool();
     const [[{ total }]] = await pool.query(
       `SELECT COUNT(*) AS total FROM kleine_anfragen k ${whereSql(f.where)}`,
       f.params,
@@ -245,7 +343,8 @@ router.get(
       sort,
       hinweis: HINWEIS,
       quelle: QUELLE,
-      daten: rows.map(mapAntwort),
+      ...(f.mdb && { abgeordneter: f.mdb }),
+      daten: rows.map((r) => mapAntwort(r, index)),
     });
   }),
 );
@@ -308,7 +407,14 @@ router.get(
       "SELECT COUNT(*) AS neu FROM kleine_anfragen WHERE datum >= CURDATE() - INTERVAL ? DAY",
       [tage],
     );
-    res.json({ tage, neu: Number(neu) || 0, hinweis: HINWEIS, quelle: QUELLE, daten: rows.map(mapAntwort) });
+    const index = await mdbIndex(pool);
+    res.json({
+      tage,
+      neu: Number(neu) || 0,
+      hinweis: HINWEIS,
+      quelle: QUELLE,
+      daten: rows.map((r) => mapAntwort(r, index)),
+    });
   }),
 );
 
@@ -325,7 +431,8 @@ router.get(
       res.status(404).json({ error: "Nicht gefunden" });
       return;
     }
-    res.json({ hinweis: HINWEIS, quelle: QUELLE, daten: mapAntwort(rows[0]) });
+    const index = await mdbIndex(getPool());
+    res.json({ hinweis: HINWEIS, quelle: QUELLE, daten: mapAntwort(rows[0], index) });
   }),
 );
 
