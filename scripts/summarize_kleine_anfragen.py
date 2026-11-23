@@ -34,6 +34,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -79,6 +80,10 @@ Regeln:
   Differenzen oder Prozentwerte), jede Zahl in deinem Text muss so in der Antwort stehen.
 - Schreibweise einheitlich, egal wie der Text sie setzt: Deutsch 12.984 (Punkt als Tausendertrenner),
   Englisch 12,984 (Komma). Jahreszahlen ohne Trenner.
+- Stichtage und Zeiträume nur, wenn sie so in der Antwort stehen. Ergänze keine Daten aus dem
+  Beginn der Wahlperiode, dem Antwortdatum oder eigenem Wissen. Nennt eine Tabelle nur Jahre, schreibe nur Jahre.
+- Amtsbezeichnungen ausschreiben: St = Staatssekretär, PSt/PStin = Parlamentarischer Staatssekretär/
+  Parlamentarische Staatssekretärin, StM/StMin = Staatsminister/Staatsministerin, BKM = Staatsminister für Kultur und Medien.
 
 Gib NUR ein JSON-Objekt zurück, ohne Erklärung davor oder danach:
 {{
@@ -157,6 +162,43 @@ def _zahlen_im_text(s: str) -> set[str]:
     return _zahlen(s) | {re.sub(r"\D", "", z) for z in _ZAHL_PUNKT_RE.findall(s or "")}
 
 
+_MONATE = {
+    "januar": 1, "februar": 2, "m\u00e4rz": 3, "maerz": 3, "april": 4, "mai": 5, "juni": 6,
+    "juli": 7, "august": 8, "september": 9, "oktober": 10, "november": 11, "dezember": 12,
+}
+# "25. M\u00e4rz 2025", "25.03.2025", "25.3.2025", "25. 3. 2025"
+_DATUM_RE = re.compile(
+    r"(?<!\d)(\d{1,2})\.\s?(?:(\d{1,2})\.\s?(\d{4})|([A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc]+)\s+(\d{4}))(?!\d)"
+)
+
+
+def _datum(m: re.Match) -> tuple[int, int, int] | None:
+    tag, mon_z, jahr_z, mon_n, jahr_n = m.groups()
+    if mon_z:
+        monat, jahr = int(mon_z), int(jahr_z)
+    else:
+        monat, jahr = _MONATE.get(mon_n.lower(), 0), int(jahr_n)
+    if 1 <= int(tag) <= 31 and 1 <= monat <= 12:
+        return (int(tag), monat, jahr)
+    return None  # "3. Quartal 2026"
+
+
+def _daten(s: str) -> set[tuple[int, int, int]]:
+    """Vollstaendige Datumsangaben als (Tag, Monat, Jahr), egal wie geschrieben."""
+    s = unicodedata.normalize("NFKC", s or "").replace("\u00ad", "")
+    s = re.sub(r"-\s*\n\s*", "", s)  # "Sep-\ntember"
+    return {d for d in (_datum(m) for m in _DATUM_RE.finditer(s)) if d}
+
+
+def _ohne_daten(s: str) -> str:
+    """Datumsangaben raus, damit die Zahlenpruefung "30.09.2026" nicht als 30, 09 und 2026 liest."""
+    return _DATUM_RE.sub(lambda m: " " if _datum(m) else m.group(0), s or "")
+
+
+def _datum_text(d: tuple[int, int, int]) -> str:
+    return f"{d[0]:02d}.{d[1]:02d}.{d[2]}"
+
+
 _TRENNER = "[ \u00a0\u202f]"
 _GRUPPE_LEER = re.compile(r"(?<![\d.,])\d{1,3}(?:" + _TRENNER + r"\d{3})+(?![\d.,]?\d)")
 _GRUPPE_PUNKT = re.compile(r"(?<![\d.,])\d{1,3}(?:\.\d{3})+(?![\d.,]?\d)(?!\s*(?:million|billion|trillion|bn)\b)")
@@ -230,9 +272,18 @@ def pruefen(d: dict, text: str) -> tuple[dict | None, str | None]:
     gt = regierungstext(text)
     im_text = _zahlen_im_text(gt)
     for k in ("zusammenfassung", "schlagzeile"):
-        fremd = sorted(z for z in _zahlen(felder[k]) if len(z) >= 2 and z not in im_text)
+        fremd = sorted(z for z in _zahlen(_ohne_daten(felder[k])) if len(z) >= 2 and z not in im_text)
         if fremd:
             return None, f"Zahlen in {k} stehen nicht in der Antwort der Bundesregierung: {', '.join(fremd[:5])}"
+    # Datumsangaben als Ganzes: 21/9304 bekam einen "Zeitraum 25. März 2025 bis
+    # 3. November 2026", den die Antwort nirgends nennt. Die Ziffern 25, 3 und die
+    # Jahre standen alle irgendwo im Text, das Datum nicht.
+    daten_im_text = _daten(gt)
+    for k in ("zusammenfassung", "schlagzeile"):
+        fremd_d = sorted(d for d in _daten(felder[k]) if d not in daten_im_text)
+        if fremd_d:
+            return None, (f"Datumsangaben in {k} stehen nicht in der Antwort der Bundesregierung: "
+                          f"{', '.join(_datum_text(d) for d in fremd_d[:3])}. Nenne nur Stichtage, die im Text stehen")
 
     kern = []
     for kz in d.get("kernzahlen") or []:
