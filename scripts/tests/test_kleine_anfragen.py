@@ -59,6 +59,16 @@ def test_titel_und_frage_drucksache():
 def test_fragesteller_aus_dem_kopf():
     assert ka.fragesteller(TEXT) == ["Erika Muster", "Max Beispiel"]
     assert ka.fragesteller("kein Kopf") == []
+    # Silbentrennung im Kopf
+    kopf = "auf die Kleine Anfrage der Abgeordneten Stephan Brandner, Martin Hess und der Frak-\ntion der AfD"
+    assert ka.fragesteller(kopf) == ["Stephan Brandner", "Martin Hess"]
+    # Doppelnamen bleiben
+    assert ka.fragesteller("auf die Kleine Anfrage der Abgeordneten Anna Meier-Schulz der Fraktion X") == ["Anna Meier-Schulz"]
+    # Fliesstext statt Namen (21/45): keine Namen statt Textbrei
+    brei = ("auf die Kleine Anfrage der Abgeordneten Stephan Brandner, Martin Hess und der Fra ktion der AfD "
+            "– Drucksache 21/27 – Einzelheiten zu Verurteilungen von 2000 bis 2022 wurde erfragt, wie viele Personen "
+            "verurteilt wurden. Die Antwort der Bundesregierung auf die Kleine Anfrage der Fraktion der AfD")
+    assert ka.fragesteller(brei) == []
 
 
 def test_bereich_fragesteller_endet_vor_regierung():
