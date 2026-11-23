@@ -27,6 +27,7 @@ import argparse
 import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date, timedelta
 from pathlib import Path
@@ -61,12 +62,14 @@ def hole(url: str) -> bytes | None:
 def finde_kreisdatei(jahr: int) -> str | None:
     """Sucht den Link auf btwJJJJkreis.csv (die Adresse enthält eine Zufallskennung)."""
     for seite in ("ergebnisse/weitere-ergebnisse.html", "ergebnisse.html"):
-        roh = hole(f"{BASIS}/bundestagswahlen/{jahr}/{seite}")
+        seiten_url = f"{BASIS}/bundestagswahlen/{jahr}/{seite}"
+        roh = hole(seiten_url)
         if not roh:
             continue
         m = re.search(rf'href="([^"]*btw{jahr}kreis\.csv)"', wa.text_aus_bytes(roh))
         if m:
-            return m.group(1) if m.group(1).startswith("http") else BASIS + m.group(1)
+            # Der Link steht relativ auf der Seite ("../../../dam/jcr/…").
+            return urllib.parse.urljoin(seiten_url, m.group(1))
     return None
 
 
@@ -220,7 +223,10 @@ def main(argv=None) -> int:
             if not db:
                 p.error("--auto braucht die Datenbank")
             status = 0
-            for typ, jahr in auto_wahlen(db, date.today()):
+            wahlen = auto_wahlen(db, date.today())
+            if not wahlen:
+                print(f"{date.today()}: keine Bundestags- oder Europawahl in den letzten {AUTO_TAGE} Tagen, nichts zu tun")
+            for typ, jahr in wahlen:
                 status |= laufe(db, typ, jahr, schreiben=a.schreiben)
             return status
         return laufe(db, a.typ, a.jahr, datei=a.datei, summe=a.summe, schreiben=a.schreiben)
