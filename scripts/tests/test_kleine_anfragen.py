@@ -137,6 +137,7 @@ def test_pruefen_behaelt_nur_belegte_kernzahlen():
         ({"story_wert": "viel"}, "story_wert"),
         ({"schlagzeile": ""}, "schlagzeile"),
         ({"zusammenfassung": "Ein Satz — mit Gedankenstrich."}, "Gedankenstrich"),
+        ({"zusammenfassung_en": "Too long. " * 90}, "zusammenfassung_en zu lang (899 Zeichen"),
     ],
 )
 def test_pruefen_lehnt_ab(aenderung, teil_des_grunds):
