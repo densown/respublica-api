@@ -58,6 +58,13 @@ const EXPECT_200 = [
   "/api/versammlungen?buendeln=1&limit=5",
   "/api/versammlungen?typ=unbekannt&von=2018-01-01&limit=5",
   "/api/versammlungen?buendeln=1&von=2026-01-01&bis=2026-12-31&sort=desc",
+  "/api/kleine-anfragen",
+  "/api/kleine-anfragen?q=Abschiebungen&fraktion=linke&sort=relevanz",
+  "/api/kleine-anfragen?q=ab&sachgebiet=Innere%20Sicherheit&min_wert=5&nur_zahlen=1",
+  "/api/kleine-anfragen?sort=wert&von=2026-01-01&bis=2026-12-31&wp=21&nicht_erhoben=1",
+  "/api/kleine-anfragen/facetten",
+  "/api/kleine-anfragen/woche",
+  "/api/kleine-anfragen/woche?tage=30&top=5",
 ];
 
 // Endpoints, die je nach Query 200/400/404 liefern duerfen, aber kein 5xx.
@@ -103,6 +110,11 @@ const NO_5XX = [
   "/api/versammlungen?serie=kaputt",
   "/api/versammlungen/stats?von=2026-12-31&bis=2026-01-01",
   "/api/versammlungen/stats?erfassung=unbekannt",
+  "/api/kleine-anfragen/21/999999",
+  "/api/kleine-anfragen?fraktion=kaputt",
+  "/api/kleine-anfragen?sort=kaputt",
+  "/api/kleine-anfragen?min_wert=11",
+  "/api/kleine-anfragen/woche?tage=0",
 ];
 
 test("List-/Stats-Endpoints liefern 200", async (t) => {

@@ -120,6 +120,24 @@ test.before(async () => {
      (99002, 161, 'mandat', 'Max Muster', 'Muster', 'AfD', NULL, '2026-08-31'),
      (99003, 161, 'mandat', 'Nora Nach', 'Nach', 'SPD', '2026-09-01', NULL)`,
   );
+  // Kleine Anfragen: eine ausgewertete von heute, eine alte, eine ohne Volltext
+  await db.query(
+    `INSERT INTO kleine_anfragen
+       (id, dokumentnummer, wahlperiode, datum, titel, vorgang_id, fraktion, initiative, fragesteller,
+        ressort, sachgebiete, deskriptoren, volltext, text_zeichen, nicht_erhoben,
+        zusammenfassung, schlagzeile, kernzahlen, story_wert, story_grund, ki_am)
+     VALUES
+     (990001, '21/99001', 21, CURDATE(), 'Regionale Verteilung der Kriegsdienstverweigerung', 990101, 'linke',
+      'Fraktion DIE LINKE', '["Erika Muster"]', 'Bundesministerium der Verteidigung', '["Verteidigung"]',
+      '["Kriegsdienstverweigerung"]', 'Im Jahr 2026 wurden 7 025 Anträge auf Kriegsdienstverweigerung anerkannt.', 75, 0,
+      'Die Bundesregierung meldet 7 025 anerkannte Anträge.', 'Mehr Kriegsdienstverweigerer',
+      '[{"wert":"7 025","einheit":"Anträge","bedeutung":"anerkannt 2026","zitat":"7 025 Anträge"}]', 9, 'Neue Zahl', NOW()),
+     (990002, '21/99002', 21, '2025-06-01', 'Abschiebungen nach Afghanistan', 990102, 'afd',
+      'Fraktion der AfD', NULL, 'Bundesministerium des Innern', '["Innere Sicherheit","Migration"]',
+      '[]', 'Daten werden statistisch nicht erfasst.', 40, 4, NULL, NULL, NULL, NULL, NULL, NULL),
+     (990003, '21/99003', 21, CURDATE(), 'Unterhaltsvorschuss', NULL, 'gruene',
+      'Fraktion BÜNDNIS 90/DIE GRÜNEN', NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL, NULL, NULL)`,
+  );
 });
 
 test.after(async () => {
@@ -309,4 +327,48 @@ test("Abgeordnete: Ausgeschiedene nur mit alle=1", { skip }, async () => {
   const weg = testZeilen(alle.body).find((a) => a.aw_id === 99002);
   assert.strictEqual(weg.mandat_bis, "2026-08-31");
   assert.strictEqual(testZeilen(alle.body).length, 3);
+});
+
+const kaIds = (body) => body.daten.map((x) => x.dokumentnummer).filter((d) => d.startsWith("21/990")).sort();
+
+test("Kleine Anfragen: Volltextsuche mit Praefix und Trefferausschnitt", { skip }, async () => {
+  const res = await agent.get("/api/kleine-anfragen?q=Kriegsdienst");
+  assert.strictEqual(res.status, 200);
+  assert.deepStrictEqual(kaIds(res.body), ["21/99001"]);
+  const k = res.body.daten.find((x) => x.dokumentnummer === "21/99001");
+  assert.strictEqual(res.body.sort, "relevanz");
+  assert.ok(k.treffer.includes("Kriegsdienstverweigerung"));
+  assert.strictEqual(k.fraktion_name, "Die Linke");
+  assert.deepStrictEqual(k.kernzahlen[0].wert, "7 025");
+  assert.strictEqual(k.dip_url, "https://dip.bundestag.de/vorgang/990101");
+  assert.ok(res.body.hinweis);
+});
+
+test("Kleine Anfragen: Filter Fraktion, Sachgebiet, Nicht-Wissen", { skip }, async () => {
+  let res = await agent.get("/api/kleine-anfragen?fraktion=afd");
+  assert.deepStrictEqual(kaIds(res.body), ["21/99002"]);
+  res = await agent.get("/api/kleine-anfragen?sachgebiet=Migration");
+  assert.deepStrictEqual(kaIds(res.body), ["21/99002"]);
+  res = await agent.get("/api/kleine-anfragen?nicht_erhoben=1");
+  assert.deepStrictEqual(kaIds(res.body), ["21/99002"]);
+  res = await agent.get("/api/kleine-anfragen?nur_zahlen=1&min_wert=5");
+  assert.deepStrictEqual(kaIds(res.body), ["21/99001"]);
+  const ohne = (await agent.get("/api/kleine-anfragen?fraktion=gruene")).body.daten[0];
+  assert.strictEqual(ohne.volltext_vorhanden, false);
+  assert.strictEqual(ohne.ausgewertet, false);
+  assert.deepStrictEqual(ohne.sachgebiete, []);
+});
+
+test("Kleine Anfragen: Woche, Facetten, Detail", { skip }, async () => {
+  const woche = await agent.get("/api/kleine-anfragen/woche");
+  assert.strictEqual(woche.status, 200);
+  assert.deepStrictEqual(kaIds(woche.body), ["21/99001"]);
+  const fac = await agent.get("/api/kleine-anfragen/facetten");
+  assert.strictEqual(fac.status, 200);
+  const mig = fac.body.sachgebiete.find((s) => s.sachgebiet === "Migration");
+  assert.ok(mig && mig.anzahl >= 1);
+  assert.ok(fac.body.fraktionen.some((f) => f.fraktion === "linke" && f.name === "Die Linke"));
+  const det = await agent.get("/api/kleine-anfragen/21/99001");
+  assert.strictEqual(det.status, 200);
+  assert.strictEqual(det.body.daten.schlagzeile, "Mehr Kriegsdienstverweigerer");
 });

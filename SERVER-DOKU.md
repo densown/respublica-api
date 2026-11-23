@@ -178,6 +178,9 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 04:00 | `gii_sync.py` | Metadaten von gesetze-im-internet.de (`gii-toc.xml`, `xml.zip`) nach `gesetze` (Vorschlag: `config/gesetze-gii-sync.cron.fragment` nach `/etc/cron.d/` kopieren) |
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
+| 05:40 | `fetch_kleine_anfragen.py` | Antworten auf Kleine Anfragen aus dem DIP → `kleine_anfragen` (inkrementell nach `f.aktualisiert`, Volltext kommt etwa 5 Tage nach der Drucksache; Fragment: `config/kleine-anfragen.cron.fragment`, erst nach Migration 021) |
+| 05:50, 13:50, 19:50 | `summarize_kleine_anfragen.py` | Zusammenfassung DE/EN, Schlagzeile, geprüfte Kernzahlen, story_wert je Antwort (Claude-CLI im Max-Plan, höchstens 4 Aufrufe je Lauf; Fragment wie oben) |
+| Mo 06:05 | `wochenliste_kleine_anfragen.py` | Themenliste der Woche → `data/kleine-anfragen/woche-JJJJ-KWnn.md`, nur lesend (Fragment wie oben) |
 | 05:55 | `fetch_abgeordnete.py` | Mandate WP 161 → `abgeordnete` (Nachrücker, Fraktionswechsel; `mandat_bis` für Ausgeschiedene per Einzelabruf, weil sie aus der Liste fallen; wiederholt bei 429; Fragment: `config/fetch-abgeordnete.cron.fragment`) |
 | 06:10 | `fetch_abstimmungen.py` | Namentliche Abstimmungen WP 161 → `abstimmungen`, Beschreibung, Links und Ergebnis → `abstimmung_details` (wiederholt bei 429) |
 | 06:12 | `fetch_votes.py` | Einzelstimmen nur für Abstimmungen ohne Einträge in `votes`; wartet, bis `fetch_abstimmungen.py` fertig ist, wiederholt bei 429 (`--all` lädt alle neu; Fragment: `config/fetch-votes.cron.fragment`) |
@@ -212,6 +215,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 |-------|--------|
 | `lib/env.py` | `ROOT` (Projektroot) und `load_env()` (lädt `ROOT/.env`) |
 | `lib/db.py` | `get_db(autocommit=True)` mit Unix-Socket-Fallback (Vorlage `gii_sync.py`), `with_connection()` Contextmanager |
+| `lib/kleine_anfragen.py` | Textauswertung für den Tracker Kleine Anfragen: Fraktionskürzel, Vorbemerkung der Fragesteller erkennen, `zahl_belegt()` |
 | `lib/log.py` | `get_logger(name)` (Datei `logs/{name}.log` + stdout), `acquire_lock(name)`/`release_lock(name)` (PID-File), `laeuft(name)` (hält ein anderer Prozess das Lock?), `install_signal_handlers(callback)` |
 | `lib/aw.py` | Abrufe bei abgeordnetenwatch: `json_abrufen(url, user_agent)` mit bis zu 5 Versuchen bei 429 und 5xx (Retry-After der Quelle, sonst 3, 6, 12, 24 s); `wartezeit()` und `wiederholen_bei()` nutzt auch `fetch_abgeordnete.py` |
 | `lib/groq.py` | `chat_completion(messages, model, max_tokens, temperature)` mit voller Retry-Logik (5 Versuche, 429-Backoff, Anti-Abuse-Erkennung) |
@@ -247,6 +251,9 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `import_world_indicators.py` | World-Bank-artige Indikatoren → `world_indicators` |
 | `import_baci.py` | CEPII BACI HS17 (2017-2024) → `trade_flows_v2` inkl. `TOTAL`, Sections I-XXI und `OTHER` mit Audit-Context in `data_update_log` |
 | `match_abstimmungen.py` | DIP-Abgleich `aenderungen` ↔ `abstimmungen` |
+| `fetch_kleine_anfragen.py` | DIP → `kleine_anfragen` (Antworten auf Kleine Anfragen, Volltext, Fraktion, Sachgebiete); `--seit JJJJ-MM-TT` für Backfill |
+| `summarize_kleine_anfragen.py` | Claude-CLI: Zusammenfassung, Schlagzeile, Kernzahlen (jede gegen den Volltext geprüft), story_wert |
+| `wochenliste_kleine_anfragen.py` | Themenliste der Woche als Markdown (nur lesend) |
 | `migrate_eu_urteile.py` | Schema-Hilfe `eu_urteile` / `eu_urteil_rechtsakte` |
 | `resummarize_claude.py` | EU-Urteile neu zusammenfassen (Claude CLI) |
 | `resummarize_rechtsakte.py` | EU-Rechtsakte neu zusammenfassen (Claude) |

@@ -84,6 +84,7 @@ app.use("/api", require("./routes/themenfelder"));
 app.use("/api", require("./routes/governance"));
 app.use("/api", require("./routes/world"));
 app.use("/api", require("./routes/versammlungen"));
+app.use("/api", require("./routes/kleine_anfragen"));
 
 app.use(notFoundHandler);
 app.use(errorHandler);
