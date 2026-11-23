@@ -108,6 +108,8 @@ const NO_5XX = [
   "/api/bundestag/abgeordnete/999999999",
   "/api/abgeordnete/999999999/votes",
   "/api/bundestag/abstimmungen/999999999",
+  "/api/bundestag/abstimmungen/999999999/lobby",
+  "/api/bundestag/abstimmungen/abc/lobby",
   "/api/bundestag/poll-votes/999999999",
   "/api/abstimmungen/999999999",
   "/api/lobbyregister/R0000000000",
