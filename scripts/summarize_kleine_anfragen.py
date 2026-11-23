@@ -82,7 +82,7 @@ Regeln:
 
 Gib NUR ein JSON-Objekt zurück, ohne Erklärung davor oder danach:
 {{
-  "zusammenfassung": "2 bis 3 Sätze Deutsch: was die Bundesregierung mitteilt, die wichtigsten Zahlen mit Zeitraum",
+  "zusammenfassung": "2 bis 3 Sätze Deutsch, höchstens 600 Zeichen: was die Bundesregierung mitteilt, die wichtigsten Zahlen mit Zeitraum",
   "zusammenfassung_en": "dieselben Aussagen auf Englisch",
   "schlagzeile": "sachliche deutsche Schlagzeile mit der wichtigsten belegten Aussage, höchstens 110 Zeichen",
   "kernzahlen": [
@@ -212,8 +212,11 @@ def pruefen(d: dict, text: str) -> tuple[dict | None, str | None]:
         if not isinstance(v, str) or not v.strip():
             return None, f"Feld {k} fehlt"
         felder[k] = re.sub(r"\s+", " ", v).strip()
-    if len(felder["zusammenfassung"]) > 700 or len(felder["zusammenfassung_en"]) > 800:
-        return None, "Zusammenfassung zu lang (höchstens 3 Sätze)"
+    # Der Grund geht beim zweiten Versuch an das Modell zurueck, daher mit Zahlen
+    for k, grenze in (("zusammenfassung", 700), ("zusammenfassung_en", 800)):
+        if len(felder[k]) > grenze:
+            return None, (f"{k} zu lang ({len(felder[k])} Zeichen, höchstens {grenze}): "
+                          "höchstens 3 Sätze, nur die wichtigsten Zahlen, Rest weglassen")
     if len(felder["schlagzeile"]) > 140:
         return None, "Schlagzeile zu lang"
     if "—" in felder["zusammenfassung"] + felder["schlagzeile"]:
