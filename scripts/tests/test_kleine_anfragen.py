@@ -265,3 +265,23 @@ def test_upsert_ueberschreibt_volltext_nicht_mit_null():
 def test_kleine_anfrage_bezug():
     assert fka.kleine_anfrage_bezug({"vorgangsbezug": [{"id": "1", "vorgangstyp": "Große Anfrage"}]}) is None
     assert fka.kleine_anfrage_bezug({"vorgangsbezug": [{"id": "2", "vorgangstyp": "Kleine Anfrage"}]})["id"] == "2"
+
+
+def test_daten_in_allen_schreibweisen():
+    assert ska._daten("Stichtag 30. September 2026, Umstellung am 01.06.2026, 3. Quartal 2026") == {
+        (30, 9, 2026), (1, 6, 2026)}
+    assert ska._daten("seit dem 30. Sep-\ntember 2026") == {(30, 9, 2026)}
+    assert ska._daten("25.3.2025 und 25. 3. 2025") == {(25, 3, 2025)}
+
+
+def test_pruefen_lehnt_erfundene_zeitraeume_ab():
+    # 21/9304: "25. März 2025 bis 3. November 2026" stand nirgends in der Antwort,
+    # die Ziffern 25, 3, 2025 und 2026 schon
+    d = {**GUT, "zusammenfassung": "Für den Zeitraum 25. März 2025 bis 30. September 2026 wurden 7 025 Anträge anerkannt."}
+    felder, grund = ska.pruefen(d, TEXT + "\nVergleich: 2025 lagen 25 Anträge vor, 3 davon aus Bayern.\n")
+    assert felder is None
+    assert "Datumsangaben in zusammenfassung" in grund and "25.03.2025" in grund
+    # Dasselbe Datum anders geschrieben als im Text ist belegt
+    d = {**GUT, "zusammenfassung": "Bis zum 30.09.2026 wurden 7 025 Anträge anerkannt."}
+    felder, grund = ska.pruefen(d, TEXT)
+    assert grund is None, grund
