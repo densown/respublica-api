@@ -78,12 +78,24 @@ def dip_get(pfad: str, params: list[tuple[str, str]], apikey: str) -> dict[str, 
     raise RuntimeError(f"DIP {pfad}: zu viele Fehlversuche")
 
 
+def abruf_params(seit: date, bis: date | None, nach_aktualisierung: bool) -> list[tuple[str, str]]:
+    """Filter fuer drucksache-text. f.datum nimmt ein Datum, f.aktualisiert will laut
+    DIP-API einen Zeitstempel (YYYY-MM-DDTHH:mm:ss); mit blossem Datum antwortet das
+    DIP mit 400, der erste Cron-Lauf am 24.11.2026 importierte deshalb nichts."""
+    if nach_aktualisierung:
+        params = [("f.drucksachetyp", "Antwort"), ("f.aktualisiert.start", f"{seit.isoformat()}T00:00:00")]
+        if bis:
+            params.append(("f.aktualisiert.end", f"{bis.isoformat()}T23:59:59"))
+        return params
+    params = [("f.drucksachetyp", "Antwort"), ("f.datum.start", seit.isoformat())]
+    if bis:
+        params.append(("f.datum.end", bis.isoformat()))
+    return params
+
+
 def antworten(seit: date, bis: date | None, nach_aktualisierung: bool, apikey: str) -> Iterator[dict]:
     """Alle Antwort-Drucksachen (mit Volltext, falls vorhanden), seitenweise per Cursor."""
-    feld = "f.aktualisiert" if nach_aktualisierung else "f.datum"
-    params = [("f.drucksachetyp", "Antwort"), (f"{feld}.start", seit.isoformat())]
-    if bis:
-        params.append((f"{feld}.end", bis.isoformat()))
+    params = abruf_params(seit, bis, nach_aktualisierung)
     cursor = None
     for _ in range(MAX_SEITEN):
         if not _running:

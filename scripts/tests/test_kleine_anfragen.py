@@ -285,3 +285,12 @@ def test_pruefen_lehnt_erfundene_zeitraeume_ab():
     d = {**GUT, "zusammenfassung": "Bis zum 30.09.2026 wurden 7 025 Anträge anerkannt."}
     felder, grund = ska.pruefen(d, TEXT)
     assert grund is None, grund
+
+
+def test_abruf_params_aktualisiert_mit_zeitstempel():
+    from datetime import date
+    # f.aktualisiert.start verlangt einen Zeitstempel, sonst DIP 400 (Cron 24.11.2026)
+    assert fka.abruf_params(date(2026, 11, 21), None, True) == [
+        ("f.drucksachetyp", "Antwort"), ("f.aktualisiert.start", "2026-11-21T00:00:00")]
+    assert fka.abruf_params(date(2026, 11, 1), date(2026, 11, 20), False) == [
+        ("f.drucksachetyp", "Antwort"), ("f.datum.start", "2026-11-01"), ("f.datum.end", "2026-11-20")]
