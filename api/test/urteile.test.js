@@ -33,3 +33,22 @@ test("ohne brauchbares Kuerzel keine Varianten", () => {
   assert.deepStrictEqual(kuerzelVarianten({ kuerzel: "X-BJNR1", amtliche_abkuerzung: null }), []);
   assert.deepStrictEqual(kuerzelVarianten({ kuerzel: "", amtliche_abkuerzung: "  " }), []);
 });
+
+const { urteilFilter } = require("../routes/urteile");
+
+test("Urteilsfilter: ohne Parameter neueste zuerst, kein Filter", () => {
+  const f = urteilFilter({});
+  assert.deepStrictEqual(f.where, []);
+  assert.strictEqual(f.orderBy, "datum DESC, id DESC");
+});
+
+test("Urteilsfilter: unbekannter Zeitraum zaehlt nicht, Suche woertlich", () => {
+  const f = urteilFilter({ zeitraum: "5y", q: "I ZR 1_%", sort: "old", gericht: "BGH" });
+  assert.strictEqual(f.where.length, 2);
+  assert.deepStrictEqual(f.params, ["BGH", "%i zr 1\\_\\%%", "%i zr 1\\_\\%%", "%i zr 1\\_\\%%"]);
+  assert.strictEqual(f.orderBy, "datum ASC, id ASC");
+});
+
+test("Urteilsfilter: Zeitraum in Tagen", () => {
+  assert.deepStrictEqual(urteilFilter({ zeitraum: "3m" }).params, [90]);
+});
