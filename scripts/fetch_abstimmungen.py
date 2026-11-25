@@ -40,7 +40,7 @@ VOTES_PAGE = 1000
 # fetch_votes.py wartet, solange dieses Lock gehalten wird
 LOCK_NAME = "fetch_abstimmungen"
 
-UA = "gesetze-fetch/1.0 (+https://github.com/bundestag/gesetze)"
+UA = aw.USER_AGENT
 
 
 def fetch_json(url: str) -> dict[str, Any]:

@@ -38,7 +38,7 @@ MAX_AUSGESCHIEDENE = 30
 
 HEADERS = {
     'Accept': 'application/json',
-    'User-Agent': 'ResPublicaGesetze/1.0 (+https://respublica.media)',
+    'User-Agent': aw.USER_AGENT,
 }
 
 

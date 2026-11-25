@@ -14,6 +14,10 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+# Eine Kennung fuer alle Abrufe bei abgeordnetenwatch, mit Kontaktadresse:
+# so kann die Quelle uns zuordnen, freischalten oder anschreiben.
+USER_AGENT = "ResPublicaBot/1.0 (+https://respublica.media; redaktion@respublica.media)"
+
 VERSUCHE = 5
 MAX_WARTEN = 60
 
