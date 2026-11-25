@@ -30,6 +30,8 @@ test.after(async () => {
 const EXPECT_200 = [
   "/api/health",
   "/api/gesetze?limit=1",
+  "/api/gesetze?mit_gesamt=1&limit=5",
+  "/api/gesetze?mit_gesamt=1&gebiet=sozial&lobby=1&klartitel=1&q=sgb_5&sort=az&offset=20",
   "/api/gesetze/stats",
   "/api/abstimmungen/latest",
   "/api/bundestag/sitzverteilung",
