@@ -44,6 +44,8 @@ const EXPECT_200 = [
   "/api/eu-urteile/stats",
   "/api/eu-urteile?limit=1",
   "/api/urteile?limit=1",
+  "/api/urteile?mit_gesamt=1&limit=5",
+  "/api/urteile?mit_gesamt=1&gericht=BGH&rechtsgebiet=Zivilrecht&zeitraum=1y&q=a_1%25&sort=old&offset=20",
   "/api/lobbyregister?limit=1",
   "/api/lobbyregister/stats",
   "/api/lobbyregister/by-field",

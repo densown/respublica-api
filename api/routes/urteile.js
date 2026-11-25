@@ -5,9 +5,69 @@ const router = express.Router();
 const { getPool } = require("../lib/db");
 const { asyncHandler } = require("../lib/errors");
 const { formatDate } = require("../lib/helpers");
+const { parsePagination } = require("../lib/validate");
 
-/** Urteile: Liste */
+const ZEITRAUM_TAGE = { "30d": 30, "3m": 90, "1y": 365 };
+
+/** LIKE-Sonderzeichen woertlich nehmen. */
+function likeEsc(s) {
+  return s.replace(/[\\%_]/g, (z) => `\\${z}`);
+}
+
+/**
+ * Bedingungen fuer die seitenweise Urteilsliste. Exportiert fuer Tests.
+ */
+function urteilFilter(query) {
+  const where = [];
+  const params = [];
+  if (query.rechtsgebiet) { where.push("rechtsgebiet LIKE ?"); params.push(`%${likeEsc(String(query.rechtsgebiet))}%`); }
+  if (query.gericht) { where.push("gericht = ?"); params.push(String(query.gericht)); }
+  const tage = ZEITRAUM_TAGE[String(query.zeitraum ?? "")];
+  if (tage) { where.push("datum >= CURDATE() - INTERVAL ? DAY"); params.push(tage); }
+  const q = String(query.q ?? "").trim().slice(0, 200);
+  if (q) {
+    const muster = `%${likeEsc(q.toLowerCase())}%`;
+    where.push(
+      "(LOWER(COALESCE(aktenzeichen, '')) LIKE ? OR LOWER(COALESCE(zusammenfassung, '')) LIKE ? OR LOWER(COALESCE(leitsatz, '')) LIKE ?)"
+    );
+    params.push(muster, muster, muster);
+  }
+  const orderBy = query.sort === "old" ? "datum ASC, id ASC" : "datum DESC, id DESC";
+  return { where, params, orderBy };
+}
+
+/**
+ * Urteile: Liste.
+ * Mit `mit_gesamt=1` seitenweise: { gesamt, limit, offset, eintraege }, Filter
+ * q, gericht, rechtsgebiet, zeitraum (30d, 3m, 1y), sort (new, old). Vorher
+ * holte die App alle rund 3.500 Urteile (3,4 MB) und filterte im Browser.
+ * Ohne `mit_gesamt` wie bisher die ganze Liste.
+ */
 router.get("/urteile", asyncHandler(async (req, res) => {
+  if (req.query.mit_gesamt === "1") {
+    const { limit, offset } = parsePagination(req.query, { defLimit: 20, maxLimit: 100 });
+    const { where, params, orderBy } = urteilFilter(req.query);
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const pool = getPool();
+    const [[zaehler]] = await pool.query(`SELECT COUNT(*) AS n FROM urteile ${whereSql}`, params);
+    const [rows] = await pool.query(
+      `SELECT id, doc_id, gericht, senat, typ, datum,
+              aktenzeichen, leitsatz, zusammenfassung,
+              auswirkung, rechtsgebiet
+       FROM urteile ${whereSql}
+       ORDER BY ${orderBy}
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({
+      gesamt: Number(zaehler.n) || 0,
+      limit,
+      offset,
+      eintraege: rows.map((r) => ({ ...r, datum: formatDate(r.datum) })),
+    });
+    return;
+  }
   const rechtsgebiet = req.query.rechtsgebiet || null;
   const gericht = req.query.gericht || null;
   let query = `
@@ -132,3 +192,4 @@ router.get("/urteile/:id", asyncHandler(async (req, res) => {
 
 module.exports = router;
 module.exports.kuerzelVarianten = kuerzelVarianten;
+module.exports.urteilFilter = urteilFilter;
