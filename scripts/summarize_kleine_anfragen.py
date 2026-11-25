@@ -23,7 +23,8 @@ das nach).
 ki_text_hash = text_hash zum Zeitpunkt des Schreibens. Aendert das DIP den
 Volltext, schreibt der naechste Lauf neu.
 
-  python scripts/summarize_kleine_anfragen.py                     # bis zu 4 neue
+  python scripts/summarize_kleine_anfragen.py                     # bis zu 4 neue ab AB_DATUM
+  python scripts/summarize_kleine_anfragen.py --ab 2026-06-01     # Untergrenze verschieben
   python scripts/summarize_kleine_anfragen.py --dokument 21/8937 --probelauf
   python scripts/summarize_kleine_anfragen.py --fehlgeschlagene
 """
@@ -35,6 +36,7 @@ import re
 import sys
 import time
 import unicodedata
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -53,6 +55,10 @@ TIMEOUT_SEC = 300
 PAUSE_SEC = 5
 MAX_KERNZAHLEN = 5
 MAX_FEHLVERSUCHE = 2
+# Untergrenze fuer den regulaeren Lauf: Zusammenfassungen sind fuer die Nachrichtenlage
+# da (Wochenliste, Neuigkeitswert). Aeltere Antworten bleiben ueber Titel und Volltext
+# auffindbar. Entscheidung 25.11.2026, Brain projekte/kleine-anfragen/entscheidungen.md.
+AB_DATUM = date(2026, 9, 1)
 
 log = get_logger(LOCK_NAME)
 _running = True
@@ -330,7 +336,8 @@ def erzeugen(z: dict, max_versuche: int = 2) -> tuple[dict | None, str | None, i
     return None, grund, max_versuche
 
 
-def offene(cur, limit: int, dokument: str | None, fehlgeschlagene: bool) -> list[dict]:
+def offene(cur, limit: int, dokument: str | None, fehlgeschlagene: bool, ab: date = AB_DATUM) -> list[dict]:
+    """Neueste zuerst. Ohne --dokument und --fehlgeschlagene nur Antworten ab `ab`."""
     sql = """SELECT id, dokumentnummer, datum, titel, fraktion, initiative, ressort, volltext, text_hash
                FROM kleine_anfragen WHERE volltext IS NOT NULL"""
     params: list = []
@@ -338,11 +345,11 @@ def offene(cur, limit: int, dokument: str | None, fehlgeschlagene: bool) -> list
         sql += " AND dokumentnummer = %s"
         params.append(dokument)
     elif fehlgeschlagene:
-        sql += " AND zusammenfassung IS NULL AND ki_fehlversuche >= %s"
-        params.append(MAX_FEHLVERSUCHE)
+        sql += " AND zusammenfassung IS NULL AND ki_fehlversuche >= %s AND datum >= %s"
+        params += [MAX_FEHLVERSUCHE, ab]
     else:
-        sql += " AND (ki_text_hash IS NULL OR ki_text_hash <> text_hash) AND ki_fehlversuche < %s"
-        params.append(MAX_FEHLVERSUCHE)
+        sql += " AND (ki_text_hash IS NULL OR ki_text_hash <> text_hash) AND ki_fehlversuche < %s AND datum >= %s"
+        params += [MAX_FEHLVERSUCHE, ab]
     sql += " ORDER BY datum DESC, id DESC LIMIT %s"
     params.append(limit)
     cur.execute(sql, params)
@@ -375,6 +382,8 @@ def main() -> int:
     ap.add_argument("--dokument", help="eine Drucksache, z. B. 21/8937 (schreibt neu)")
     ap.add_argument("--fehlgeschlagene", action="store_true", help="zweimal durchgefallene nochmal")
     ap.add_argument("--probelauf", action="store_true", help="ausgeben statt speichern")
+    ap.add_argument("--ab", type=date.fromisoformat, default=AB_DATUM,
+                    help=f"nur Antworten ab diesem Datum (Standard {AB_DATUM.isoformat()})")
     args = ap.parse_args()
 
     load_env()
@@ -384,7 +393,7 @@ def main() -> int:
     conn = get_db(autocommit=True)
     cur = conn.cursor()
     try:
-        liste = offene(cur, MAX_AUFRUFE, args.dokument, args.fehlgeschlagene)
+        liste = offene(cur, MAX_AUFRUFE, args.dokument, args.fehlgeschlagene, args.ab)
         log.info("%d Antworten offen in diesem Lauf", len(liste))
         aufrufe = ok = 0
         for z in liste:
