@@ -26,7 +26,8 @@ WIKIDATA_CLAIMS_URL = (
     "https://www.wikidata.org/w/api.php"
     "?action=wbgetclaims&entity={qid}&property=P18&format=json"
 )
-USER_AGENT = "ResPublicaGesetze/1.0 (+https://respublica.media)"
+# Gleiche Kennung wie lib/aw.py (USER_AGENT)
+USER_AGENT = "ResPublicaBot/1.0 (+https://respublica.media; redaktion@respublica.media)"
 
 SELECT_SQL = """
 SELECT id, aw_id, politiker_id, name

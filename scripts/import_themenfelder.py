@@ -32,6 +32,7 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from lib import aw
 from lib.db import get_db
 from lib.env import load_env
 from lib.log import (
@@ -45,7 +46,7 @@ LOCK_NAME = "import_themenfelder"
 BASE = "https://www.abgeordnetenwatch.de/api/v2"
 HEADERS = {
     "Accept": "application/json",
-    "User-Agent": "ResPublicaGesetze/1.0 (+https://respublica.media)",
+    "User-Agent": aw.USER_AGENT,
 }
 PAGE = 100
 PAGE_SLEEP = 1.0

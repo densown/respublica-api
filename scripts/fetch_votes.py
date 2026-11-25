@@ -23,7 +23,7 @@ from lib.log import acquire_lock, laeuft, release_lock
 ROOT = Path(__file__).resolve().parent.parent
 LOG_PATH = ROOT / "logs" / "fetch_votes.log"
 BASE_URL = "https://www.abgeordnetenwatch.de/api/v2/polls"
-USER_AGENT = "ResPublicaGesetze/1.0 (+https://respublica.media)"
+USER_AGENT = aw.USER_AGENT
 ALLOWED_VOTES = {"yes", "no", "abstain", "no_show"}
 LOCK_NAME = "fetch_votes"
 # fetch_abstimmungen.py (06:10) lief am 17.10.2026 bis nach 06:15. Wer
