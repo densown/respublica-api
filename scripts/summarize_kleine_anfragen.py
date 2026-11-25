@@ -5,7 +5,9 @@ Schreibt in kleine_anfragen (Migration 021): zusammenfassung (DE), zusammenfassu
 schlagzeile, kernzahlen (JSON), story_wert (0 bis 10), story_grund.
 
 Modell: Claude ueber die CLI im Max-Plan (lib/claude.py), eine Antwort je
-Aufruf, hoechstens 4 Aufrufe je Lauf (Projektregel: hoechstens 5). Der Prompt
+Aufruf, hoechstens 5 Aufrufe je Lauf (Projektregel: hoechstens 5), 5 Laeufe am Tag.
+Ausgewertet werden nur Antworten ab AB_DATUM (Neueste zuerst); das Archiv davor
+bleibt ohne Zusammenfassung (--ab holt es bei Bedarf gezielt nach). Der Prompt
 geht als ein Argument an die CLI (Linux: hoechstens 128 KB), deshalb wird der
 Volltext auf MAX_ZEICHEN gekuerzt; sehr lange Antworten sind fast immer lange
 Tabellen, die Kernaussagen stehen vorne.
@@ -23,7 +25,8 @@ das nach).
 ki_text_hash = text_hash zum Zeitpunkt des Schreibens. Aendert das DIP den
 Volltext, schreibt der naechste Lauf neu.
 
-  python scripts/summarize_kleine_anfragen.py                     # bis zu 4 neue
+  python scripts/summarize_kleine_anfragen.py                     # bis zu 5 neue ab AB_DATUM
+  python scripts/summarize_kleine_anfragen.py --ab 2026-10-01     # anderer Stichtag
   python scripts/summarize_kleine_anfragen.py --dokument 21/8937 --probelauf
   python scripts/summarize_kleine_anfragen.py --fehlgeschlagene
 """
@@ -47,7 +50,8 @@ from lib.log import acquire_lock, get_logger, install_signal_handlers, release_l
 
 LOCK_NAME = "summarize_kleine_anfragen"
 MODELL = "claude-cli"
-MAX_AUFRUFE = 4
+MAX_AUFRUFE = 5
+AB_DATUM = "2026-11-01"  # aeltere Antworten nur auf Anfrage (--ab, --dokument)
 MAX_ZEICHEN = 55_000
 TIMEOUT_SEC = 300
 PAUSE_SEC = 5
@@ -330,7 +334,7 @@ def erzeugen(z: dict, max_versuche: int = 2) -> tuple[dict | None, str | None, i
     return None, grund, max_versuche
 
 
-def offene(cur, limit: int, dokument: str | None, fehlgeschlagene: bool) -> list[dict]:
+def offene(cur, limit: int, dokument: str | None, fehlgeschlagene: bool, ab: str) -> list[dict]:
     sql = """SELECT id, dokumentnummer, datum, titel, fraktion, initiative, ressort, volltext, text_hash
                FROM kleine_anfragen WHERE volltext IS NOT NULL"""
     params: list = []
@@ -343,6 +347,9 @@ def offene(cur, limit: int, dokument: str | None, fehlgeschlagene: bool) -> list
     else:
         sql += " AND (ki_text_hash IS NULL OR ki_text_hash <> text_hash) AND ki_fehlversuche < %s"
         params.append(MAX_FEHLVERSUCHE)
+    if not dokument:
+        sql += " AND datum >= %s"
+        params.append(ab)
     sql += " ORDER BY datum DESC, id DESC LIMIT %s"
     params.append(limit)
     cur.execute(sql, params)
@@ -374,6 +381,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dokument", help="eine Drucksache, z. B. 21/8937 (schreibt neu)")
     ap.add_argument("--fehlgeschlagene", action="store_true", help="zweimal durchgefallene nochmal")
+    ap.add_argument("--ab", default=AB_DATUM, help=f"nur Antworten ab diesem Datum (Standard {AB_DATUM})")
     ap.add_argument("--probelauf", action="store_true", help="ausgeben statt speichern")
     args = ap.parse_args()
 
@@ -384,7 +392,7 @@ def main() -> int:
     conn = get_db(autocommit=True)
     cur = conn.cursor()
     try:
-        liste = offene(cur, MAX_AUFRUFE, args.dokument, args.fehlgeschlagene)
+        liste = offene(cur, MAX_AUFRUFE, args.dokument, args.fehlgeschlagene, args.ab)
         log.info("%d Antworten offen in diesem Lauf", len(liste))
         aufrufe = ok = 0
         for z in liste:
