@@ -294,3 +294,28 @@ def test_abruf_params_aktualisiert_mit_zeitstempel():
         ("f.drucksachetyp", "Antwort"), ("f.aktualisiert.start", "2026-11-21T00:00:00")]
     assert fka.abruf_params(date(2026, 11, 1), date(2026, 11, 20), False) == [
         ("f.drucksachetyp", "Antwort"), ("f.datum.start", "2026-11-01"), ("f.datum.end", "2026-11-20")]
+
+
+class _Cursor:
+    description = [("id",), ("dokumentnummer",)]
+
+    def __init__(self):
+        self.sql, self.params = None, None
+
+    def execute(self, sql, params):
+        self.sql, self.params = " ".join(sql.split()), list(params)
+
+    def fetchall(self):
+        return []
+
+
+def test_offene_nur_ab_stichtag_und_neueste_zuerst():
+    from datetime import date
+    cur = _Cursor()
+    ska.offene(cur, 4, None, False)
+    assert "datum >= %s" in cur.sql and "ORDER BY datum DESC, id DESC LIMIT %s" in cur.sql
+    assert cur.params == [ska.MAX_FEHLVERSUCHE, ska.AB_DATUM, 4]
+    cur = _Cursor()
+    ska.offene(cur, 1, "21/9304", False, date(2020, 1, 1))
+    # --dokument ignoriert die Untergrenze
+    assert "datum >= %s" not in cur.sql and cur.params == ["21/9304", 1]
