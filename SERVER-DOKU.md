@@ -164,7 +164,7 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/ep/land/:code` | Ein Land im Parlament: Sitze, Fraktionen, jüngste Hauptabstimmungen mit den Stimmen des Landes (`limit`, 1 bis 20) |
 | GET | `/api/strom/tag` | Stundenpreise aller Zonen für einen Liefertag (`datum`, Default jüngster Tag), mit Tagesmittel, Min, Max, Vortag und Platz auf der Kachelkarte. `einheit` ist immer `EUR/MWh` (Börsenpreis ohne Steuern und Netzentgelte), Marktzeit Europe/Berlin |
 | GET | `/api/strom/zone/:code` | Tageswerte einer Zone (`tage`, 7 bis 400, Default 90) |
-| GET | `/api/strom/verlauf` | Tagesmittel von bis zu vier Zonen auf einer Achse (`zonen`, `tage`), für den Ländervergleich |
+| GET | `/api/strom/verlauf` | Tagesmittel von bis zu vier Zonen auf einer Achse (`zonen`, `tage`), für den Ländervergleich. `seit` und `bis` nennen die Spanne der vorhandenen Daten |
 | GET | `/api/strom/kennzahlen` | Vorberechnet aus `schnappschuesse`: negative Stunden je Zone im laufenden Jahr, Anteil der Stunden mit gleichem Preis in DE-LU, FR, NL, BE, AT, Tagesberichte der letzten drei Liefertage |
 | GET | `/api/world/categories` | Indikator-Kategorien (`data_indicators` + `world_indicator_meta` für Anzeige-Texte; optional `lang=de` oder `lang=en`, Default `en`) |
 | GET | `/api/world/indicators` | Indikatoren (wie oben) |

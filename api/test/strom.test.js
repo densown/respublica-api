@@ -103,6 +103,11 @@ test("Zone: Tageswerte mit negativen Stunden", { skip }, async () => {
   assert.strictEqual(v.body.einheit, "EUR/MWh");
   assert.strictEqual(v.body.zonen[0].code, "TA");
   assert.strictEqual(v.body.zonen[0].werte.length, v.body.tage.length);
+  // Spanne der vorhandenen Daten, unabhaengig vom angefragten Zeitraum
+  assert.match(v.body.seit, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(v.body.bis, /^\d{4}-\d{2}-\d{2}$/);
+  assert.ok(v.body.seit <= v.body.tage[0]);
+  assert.strictEqual(v.body.bis, v.body.tage[v.body.tage.length - 1]);
   assert.strictEqual((await agent.get("/api/strom/verlauf")).status, 400);
   assert.strictEqual((await agent.get("/api/strom/verlauf?zonen=A1,B2,C3,D4,E5")).status, 400);
   assert.strictEqual((await agent.get("/api/strom/verlauf?zonen=ZZ")).status, 404);
