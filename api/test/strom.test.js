@@ -96,6 +96,16 @@ test("Zone: Tageswerte mit negativen Stunden", { skip }, async () => {
   assert.strictEqual(t.negativ_stunden, 1);
   assert.strictEqual(r.body.einheit, "EUR/MWh");
   assert.strictEqual((await agent.get("/api/strom/zone/ZZ")).status, 404);
+
+  // Vergleich: mehrere Zonen, gleiche Tagesachse, Reihenfolge wie angefragt
+  const v = await agent.get("/api/strom/verlauf?zonen=TA&tage=30");
+  assert.strictEqual(v.status, 200);
+  assert.strictEqual(v.body.einheit, "EUR/MWh");
+  assert.strictEqual(v.body.zonen[0].code, "TA");
+  assert.strictEqual(v.body.zonen[0].werte.length, v.body.tage.length);
+  assert.strictEqual((await agent.get("/api/strom/verlauf")).status, 400);
+  assert.strictEqual((await agent.get("/api/strom/verlauf?zonen=A1,B2,C3,D4,E5")).status, 400);
+  assert.strictEqual((await agent.get("/api/strom/verlauf?zonen=ZZ")).status, 404);
   assert.strictEqual((await agent.get("/api/strom/zone/zu-lang-und-falsch")).status, 400);
 });
 

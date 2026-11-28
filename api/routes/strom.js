@@ -121,6 +121,48 @@ router.get("/strom/tag", asyncHandler(async (req, res) => {
   });
 }));
 
+// Tagesmittel mehrerer Zonen in einem Abruf, fuer den Laendervergleich.
+// Hoechstens vier Zonen, hoechstens 400 Tage: bleibt unter 30 KB.
+router.get("/strom/verlauf", asyncHandler(async (req, res) => {
+  const zonen = [...new Set(String(req.query.zonen || "").toUpperCase().split(",").map((z) => z.trim()).filter(Boolean))];
+  if (!zonen.length || zonen.length > 4 || zonen.some((z) => !ZONE_RE.test(z))) {
+    res.status(400).json({ error: "zonen ungültig: eine bis vier Zonen, durch Komma getrennt" });
+    return;
+  }
+  const tage = Math.min(400, Math.max(7, Number.parseInt(String(req.query.tage || "90"), 10) || 90));
+  const pool = getPool();
+  const l = lang(req);
+  const [bekannt] = await pool.query(
+    `SELECT code, land, ${l === "de" ? "name_de" : "name_en"} AS name FROM strom_zonen WHERE code IN (?) AND aktiv = 1`,
+    [zonen],
+  );
+  if (!bekannt.length) {
+    res.status(404).json({ error: "Zone nicht gefunden" });
+    return;
+  }
+  const codes = bekannt.map((z) => z.code);
+  const [rows] = await pool.query(
+    `SELECT zone, liefertag, SUM(eur_mwh * minuten) / SUM(minuten) AS mittel
+     FROM strom_preise
+     WHERE zone IN (?) AND liefertag > (SELECT MAX(liefertag) FROM strom_preise WHERE zone IN (?)) - INTERVAL ? DAY
+     GROUP BY zone, liefertag ORDER BY liefertag`,
+    [codes, codes, tage],
+  );
+  const tageListe = [...new Set(rows.map((r) => lokalDatum(r.liefertag)))];
+  const stelle = new Map(tageListe.map((d, i) => [d, i]));
+  const reihen = new Map(codes.map((c) => [c, new Array(tageListe.length).fill(null)]));
+  for (const r of rows) reihen.get(r.zone)[stelle.get(lokalDatum(r.liefertag))] = r2(r.mittel);
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({
+    einheit: EINHEIT,
+    tage: tageListe,
+    // Reihenfolge wie angefragt
+    zonen: zonen.filter((z) => reihen.has(z)).map((z) => ({ ...bekannt.find((b) => b.code === z), werte: reihen.get(z) })),
+    stand: await stand(pool),
+    quelle: QUELLE,
+  });
+}));
+
 router.get("/strom/zone/:code", asyncHandler(async (req, res) => {
   const code = String(req.params.code || "").toUpperCase();
   if (!ZONE_RE.test(code)) {

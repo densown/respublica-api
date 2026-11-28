@@ -231,6 +231,56 @@ router.get("/ep/abstimmungen/:id", asyncHandler(async (req, res) => {
   });
 }));
 
+// Ein Land im Parlament: Sitze, Verteilung auf die Fraktionen und wie die
+// Abgeordneten des Landes bei den juengsten Hauptabstimmungen gestimmt haben.
+// Fuer die Laenderseite und die Europakarte der App.
+router.get("/ep/land/:code", asyncHandler(async (req, res) => {
+  const land = String(req.params.code || "").trim().toUpperCase();
+  if (!LAND_RE.test(land)) {
+    res.status(400).json({ error: "land ungültig" });
+    return;
+  }
+  const limit = ganzzahl(req.query.limit, 5, 1, 20);
+  const pool = getPool();
+  const [fraktionen] = await pool.query(
+    `SELECT a.fraktion AS code, f.kurz, f.name, COUNT(*) AS n
+     FROM ep_abgeordnete a LEFT JOIN ep_fraktionen f ON f.code = a.fraktion
+     WHERE a.land = ? AND a.im_amt = 1
+     GROUP BY a.fraktion, f.kurz, f.name ORDER BY n DESC, a.fraktion`,
+    [land],
+  );
+  const sitze = fraktionen.reduce((s, f) => s + Number(f.n), 0);
+  if (!sitze) {
+    res.status(404).json({ error: "Land nicht gefunden" });
+    return;
+  }
+  const [letzte] = await pool.query("SELECT * FROM ep_abstimmungen ORDER BY zeit DESC, id DESC LIMIT ?", [limit]);
+  const ids = letzte.map((r) => r.id);
+  const [stimmen] = ids.length
+    ? await pool.query(
+        "SELECT abstimmung_id, position, COUNT(*) AS n FROM ep_stimmen WHERE land = ? AND abstimmung_id IN (?) GROUP BY abstimmung_id, position",
+        [land, ids],
+      )
+    : [[]];
+  const jeAbstimmung = new Map(ids.map((id) => [id, leer()]));
+  for (const r of stimmen) jeAbstimmung.get(r.abstimmung_id)[r.position] += Number(r.n);
+  const l = lang(req);
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({
+    land,
+    sitze,
+    fraktionen: fraktionen.map((f) => ({
+      code: f.code || "NI",
+      kurz: f.kurz || f.code || "NI",
+      name: f.name || f.code || "NI",
+      sitze: Number(f.n),
+    })),
+    letzte: letzte.map((r) => ({ ...mapAbstimmung(r, l), land: jeAbstimmung.get(r.id) })),
+    stand: await stand(pool),
+    quelle: QUELLE,
+  });
+}));
+
 router.get("/ep/abgeordnete", asyncHandler(async (req, res) => {
   const land = String(req.query.land || "DEU").trim().toUpperCase();
   if (!LAND_RE.test(land)) {

@@ -161,14 +161,17 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/ep/abstimmungen/:id` | Eine Abstimmung: Stimmen je Fraktion und je Land, Einzelstimmen der deutschen Abgeordneten, weitere Abstimmungen zum selben Verfahren |
 | GET | `/api/ep/abgeordnete` | Abgeordnete im Amt eines Landes (`land`, Default `DEU`) mit Bilanz und Teilnahme |
 | GET | `/api/ep/abgeordnete/:id` | Profil: Bilanz, Teilnahme, Anteil der Stimmen mit der eigenen Fraktion, letzte Abstimmungen (`limit`, `offset`) |
+| GET | `/api/ep/land/:code` | Ein Land im Parlament: Sitze, Fraktionen, jüngste Hauptabstimmungen mit den Stimmen des Landes (`limit`, 1 bis 20) |
 | GET | `/api/strom/tag` | Stundenpreise aller Zonen für einen Liefertag (`datum`, Default jüngster Tag), mit Tagesmittel, Min, Max, Vortag und Platz auf der Kachelkarte. `einheit` ist immer `EUR/MWh` (Börsenpreis ohne Steuern und Netzentgelte), Marktzeit Europe/Berlin |
 | GET | `/api/strom/zone/:code` | Tageswerte einer Zone (`tage`, 7 bis 400, Default 90) |
+| GET | `/api/strom/verlauf` | Tagesmittel von bis zu vier Zonen auf einer Achse (`zonen`, `tage`), für den Ländervergleich |
 | GET | `/api/strom/kennzahlen` | Vorberechnet aus `schnappschuesse`: negative Stunden je Zone im laufenden Jahr, Anteil der Stunden mit gleichem Preis in DE-LU, FR, NL, BE, AT, Tagesberichte der letzten drei Liefertage |
 | GET | `/api/world/categories` | Indikator-Kategorien (`data_indicators` + `world_indicator_meta` für Anzeige-Texte; optional `lang=de` oder `lang=en`, Default `en`) |
 | GET | `/api/world/indicators` | Indikatoren (wie oben) |
 | GET | `/api/world/map` | Weltkarte (`data_values` + `data_indicators`; Länder-/Aggregat-Felder wie zuvor aus `world_indicators` pro Zeile) |
 | GET | `/api/world/country/:code` | Land (Werte aus `data_values`; Kopfzeile wie zuvor erste Zeile aus `world_indicators`) |
 | GET | `/api/world/timeseries` | Zeitreihe (`data_values`) |
+| GET | `/api/world/steckbrief/:code` | Acht Kennzahlen eines Landes mit jüngstem Wert, Reihe seit 2000 und Quelle, für die Länderseiten |
 | GET | `/api/world/compare` | Vergleich (`data_values` + `world_indicators` für `country_name` pro Jahr) |
 | GET | `/api/world/ranking` | Ranking (`data_values` + `world_indicators` für Namen) |
 | GET | `/api/world/scatter` | Scatter (wie Ranking/Map) |

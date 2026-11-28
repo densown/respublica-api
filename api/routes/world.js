@@ -449,6 +449,65 @@ router.get("/world/climate/:iso3", asyncHandler(async (req, res) => {
   });
 }));
 
+// Steckbrief eines Landes: wenige Kennzahlen mit juengstem Wert und der Reihe
+// seit 2000, jede mit Quelle. Fuer die Laenderseiten im Bereich Europa; der
+// volle Datensatz unter /world/country/:code ist dafuer zu gross.
+const STECKBRIEF_CODES = [
+  "SP.POP.TOTL",
+  "NY.GDP.PCAP.CD",
+  "NY.GDP.MKTP.KD.ZG",
+  "FP.CPI.TOTL.ZG",
+  "SL.UEM.TOTL.ZS",
+  "SP.DYN.LE00.IN",
+  "EG.FEC.RNEW.ZS",
+  "GC.DOD.TOTL.GD.ZS",
+];
+router.get("/world/steckbrief/:code", asyncHandler(async (req, res) => {
+  const code = String(req.params.code || "").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(code)) {
+    res.status(400).json({ error: "Ungültiger Ländercode" });
+    return;
+  }
+  const lang = worldLang(req);
+  const nameCol = worldNameCol(lang);
+  const unitCol = lang === "de" ? "unit_de" : "unit_en";
+  const [rows] = await getPool().query(
+    `SELECT di.code, di.\`${nameCol}\` AS name, di.\`${unitCol}\` AS einheit, di.value_type, di.display_decimals,
+            ds.name AS quelle_name, ds.url AS quelle_url, ds.license AS quelle_lizenz,
+            dv.year, dv.value
+     FROM data_indicators di
+     INNER JOIN data_values dv ON dv.indicator_id = di.id
+     LEFT JOIN data_sources ds ON ds.id = di.source_id
+     WHERE di.code IN (?) AND di.is_active = 1 AND dv.country_code = ? AND dv.year >= 2000 AND dv.value IS NOT NULL
+     ORDER BY dv.year`,
+    [STECKBRIEF_CODES, code],
+  );
+  const jeCode = new Map();
+  for (const r of rows) {
+    if (!jeCode.has(r.code)) {
+      jeCode.set(r.code, {
+        code: r.code,
+        name: r.name,
+        einheit: r.einheit,
+        art: r.value_type,
+        stellen: r.display_decimals,
+        quelle: { name: r.quelle_name, url: r.quelle_url, lizenz: r.quelle_lizenz },
+        reihe: [],
+      });
+    }
+    jeCode.get(r.code).reihe.push({ jahr: r.year, wert: worldNum(r.value) });
+  }
+  res.set("Cache-Control", "public, max-age=3600");
+  res.json({
+    land: code,
+    kennzahlen: STECKBRIEF_CODES.filter((c) => jeCode.has(c)).map((c) => {
+      const k = jeCode.get(c);
+      const letzter = k.reihe[k.reihe.length - 1];
+      return { ...k, jahr: letzter.jahr, wert: letzter.wert };
+    }),
+  });
+}));
+
 router.get("/world/timeseries", asyncHandler(async (req, res) => {
   const country = String(req.query.country || "")
     .trim()

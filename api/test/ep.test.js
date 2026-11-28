@@ -133,6 +133,19 @@ test("Abgeordnete: nur im Amt, Teilnahme, Profil mit Fraktionslinie", { skip }, 
   assert.strictEqual(unsere[0].teilnahme, 100);
   assert.strictEqual((await agent.get("/api/ep/abgeordnete?land=deutschland")).status, 400);
 
+  // Laenderseite: Sitze, Fraktionen, juengste Abstimmungen mit den Stimmen des Landes
+  const landDe = await agent.get("/api/ep/land/deu?limit=3");
+  assert.strictEqual(landDe.status, 200);
+  assert.ok(landDe.body.sitze >= 3);
+  assert.strictEqual(landDe.body.fraktionen.reduce((n, f) => n + f.sitze, 0), landDe.body.sitze);
+  assert.ok(landDe.body.letzte.length <= 3);
+  for (const a of landDe.body.letzte) {
+    assert.deepStrictEqual(Object.keys(a.land).sort(), ["enthaltung", "ja", "nein", "nicht"]);
+  }
+  assert.strictEqual(landDe.body.quelle.slug, "howtheyvote");
+  assert.strictEqual((await agent.get("/api/ep/land/deutschland")).status, 400);
+  assert.strictEqual((await agent.get("/api/ep/land/XXX")).status, 404);
+
   const anna = await agent.get("/api/ep/abgeordnete/9001");
   assert.strictEqual(anna.status, 200);
   assert.deepStrictEqual(anna.body.stimmen, { ja: 2, nein: 0, enthaltung: 0, nicht: 0 });

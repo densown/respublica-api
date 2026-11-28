@@ -355,6 +355,7 @@ const FESTE_SEITEN = [
   ["/eu-recht", "weekly", "0.7"],
   ["/europa", "daily", "0.7"],
   ["/europa/strom", "daily", "0.8"],
+  ["/europa/vergleich", "daily", "0.6"],
   ["/europa/parlament", "daily", "0.8"],
   ["/weltkarte", "monthly", "0.6"],
   ["/demokratie", "monthly", "0.6"],
