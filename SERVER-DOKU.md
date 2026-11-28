@@ -19,6 +19,8 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `api/routes/lobby.js` | `/api/lobbyregister*`, `/api/lobby-projects*` |
 | `api/routes/wahlen.js` | `/api/wahlen*` |
 | `api/routes/world.js` | `/api/world*` |
+| `api/routes/quellen.js` | `/api/quellen*`, `/api/stand` |
+| `api/lib/quellen.js` | Frische einer Quelle (aktuell, veraltet, unbekannt) |
 
 Alle Router werden per `app.use("/api", router)` gemountet; Routen definieren Pfade ohne `/api`-Prefix.
 
@@ -149,6 +151,9 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/wahlen/national-average` | Bundesdurchschnitt |
 | GET | `/api/wahlen/stats` | Statistik |
 | GET | `/api/wahlen/region/:ags` | Region nach AGS |
+| GET | `/api/quellen` | Quellenregister aus `data_sources`: Name, Herausgeber, Link, Lizenz, Takt, letzter Abruf, Zustand (`aktuell`, `veraltet`, `unbekannt`, `ohne_takt`). Optional `bereich=europa`, `lang=de` oder `en` (Default `de`). Fünf Minuten gepuffert |
+| GET | `/api/quellen/:slug` | Eine Quelle |
+| GET | `/api/stand` | Kurzfassung für Stand-Stempel und Brain: Zustand je Quelle, Liste `veraltet`. Grenze ist `stale_after_hours`, sonst Vorgabe nach `update_freq` (`api/lib/quellen.js`) |
 | GET | `/api/world/categories` | Indikator-Kategorien (`data_indicators` + `world_indicator_meta` für Anzeige-Texte; optional `lang=de` oder `lang=en`, Default `en`) |
 | GET | `/api/world/indicators` | Indikatoren (wie oben) |
 | GET | `/api/world/map` | Weltkarte (`data_values` + `data_indicators`; Länder-/Aggregat-Felder wie zuvor aus `world_indicators` pro Zeile) |
@@ -224,6 +229,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `lib/kleine_anfragen.py` | Textauswertung für den Tracker Kleine Anfragen: Fraktionskürzel, Vorbemerkung der Fragesteller erkennen, `zahl_belegt()` |
 | `lib/log.py` | `get_logger(name)` (Datei `logs/{name}.log` + stdout), `acquire_lock(name)`/`release_lock(name)` (PID-File), `laeuft(name)` (hält ein anderer Prozess das Lock?), `install_signal_handlers(callback)` |
 | `lib/aw.py` | Abrufe bei abgeordnetenwatch: `json_abrufen(url, user_agent)` mit bis zu 5 Versuchen bei 429 und 5xx (Retry-After der Quelle, sonst 3, 6, 12, 24 s); `wartezeit()` und `wiederholen_bei()` nutzt auch `fetch_abgeordnete.py` |
+| `lib/quelle.py` | Gemeinsamer Ablauf für jeden Abruf einer fremden Quelle: `with Lauf(slug, conn, schreiben=...)` protokolliert in `data_update_log`, setzt `last_fetched`, `last_success`, `last_error` in `data_sources`, `abrufen()` wiederholt bei 429 und 5xx und legt die Rohantwort 14 Tage unter `data/raw/<slug>/` ab, `pruefen()` bricht ab, bevor geschrieben wird. Ohne `schreiben` Trockenlauf. Neue Quellen nutzen das statt eigener Protokoll-Logik |
 | `lib/groq.py` | `chat_completion(messages, model, max_tokens, temperature)` mit voller Retry-Logik (5 Versuche, 429-Backoff, Anti-Abuse-Erkennung) |
 
 | Datei | Zweck |

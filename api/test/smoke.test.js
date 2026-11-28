@@ -29,6 +29,9 @@ test.after(async () => {
 // Endpoints ohne Pflicht-Parameter, die 200 liefern muessen.
 const EXPECT_200 = [
   "/api/health",
+  "/api/quellen",
+  "/api/quellen?bereich=europa&lang=en",
+  "/api/stand",
   "/api/gesetze?limit=1",
   "/api/gesetze?mit_gesamt=1&limit=5",
   "/api/gesetze?mit_gesamt=1&gebiet=sozial&lobby=1&klartitel=1&q=sgb_5&sort=az&offset=20",
