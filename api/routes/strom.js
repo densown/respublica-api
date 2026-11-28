@@ -148,6 +148,12 @@ router.get("/strom/verlauf", asyncHandler(async (req, res) => {
      GROUP BY zone, liefertag ORDER BY liefertag`,
     [codes, codes, tage],
   );
+  // Spanne der vorhandenen Daten: damit die App Zeiträume ausblenden kann,
+  // die nicht mehr zeigen würden als ein kürzerer.
+  const [[spanne]] = await pool.query(
+    "SELECT MIN(liefertag) AS seit, MAX(liefertag) AS bis FROM strom_preise WHERE zone IN (?)",
+    [codes],
+  );
   const tageListe = [...new Set(rows.map((r) => lokalDatum(r.liefertag)))];
   const stelle = new Map(tageListe.map((d, i) => [d, i]));
   const reihen = new Map(codes.map((c) => [c, new Array(tageListe.length).fill(null)]));
@@ -156,6 +162,8 @@ router.get("/strom/verlauf", asyncHandler(async (req, res) => {
   res.json({
     einheit: EINHEIT,
     tage: tageListe,
+    seit: spanne?.seit ? lokalDatum(spanne.seit) : null,
+    bis: spanne?.bis ? lokalDatum(spanne.bis) : null,
     // Reihenfolge wie angefragt
     zonen: zonen.filter((z) => reihen.has(z)).map((z) => ({ ...bekannt.find((b) => b.code === z), werte: reihen.get(z) })),
     stand: await stand(pool),
