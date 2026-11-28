@@ -261,6 +261,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fetch_kleine_anfragen.py` | DIP → `kleine_anfragen` (Antworten auf Kleine Anfragen, Volltext, Fraktion, Sachgebiete); `--seit JJJJ-MM-TT` für Backfill |
 | `summarize_kleine_anfragen.py` | Claude-CLI: Zusammenfassung, Schlagzeile, Kernzahlen (jede gegen den Volltext geprüft), story_wert |
 | `wochenliste_kleine_anfragen.py` | Themenliste der Woche als Markdown (nur lesend) |
+| `nachziehen_teuro_kleine_anfragen.py` | Einmalig: "T Euro" (Tausend Euro) in gespeicherten Zusammenfassungen und Kernzahlen in lesbare Beträge umrechnen; `--probelauf` zeigt vorher/nachher |
 | `migrate_eu_urteile.py` | Schema-Hilfe `eu_urteile` / `eu_urteil_rechtsakte` |
 | `resummarize_claude.py` | EU-Urteile neu zusammenfassen (Claude CLI) |
 | `resummarize_rechtsakte.py` | EU-Rechtsakte neu zusammenfassen (Claude) |

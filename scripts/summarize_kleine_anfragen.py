@@ -86,6 +86,8 @@ Regeln:
   Differenzen oder Prozentwerte), jede Zahl in deinem Text muss so in der Antwort stehen.
 - Schreibweise einheitlich, egal wie der Text sie setzt: Deutsch 12.984 (Punkt als Tausendertrenner),
   Englisch 12,984 (Komma). Jahreszahlen ohne Trenner.
+- Beträge wie im Text übernehmen, auch "T Euro" (Tausend Euro) oder "TEUR"; die Umrechnung in
+  lesbare Beträge passiert danach automatisch. Rechne nicht selbst um.
 - Stichtage und Zeiträume nur, wenn sie so in der Antwort stehen. Ergänze keine Daten aus dem
   Beginn der Wahlperiode, dem Antwortdatum oder eigenem Wissen. Nennt eine Tabelle nur Jahre, schreibe nur Jahre.
 - Amtsbezeichnungen ausschreiben: St = Staatssekretär, PSt/PStin = Parlamentarischer Staatssekretär/
@@ -237,6 +239,58 @@ def zahlen_schreiben(s: str, sprache: str) -> str:
     return _OHNE_TRENNER.sub(neu, s)
 
 
+# Haushaltsnotation: "2.727,50 T Euro" heisst 2.727.500 Euro, Leser lesen aber
+# Billionen (21/9382, Luca 28.11.2026). Erst nach der Zahlenpruefung umrechnen,
+# damit die Ziffern aus dem Text noch gefunden werden; Zitate bleiben woertlich.
+_TEURO_DE = re.compile(
+    r"(?<![\d,.])(\d{1,3}(?:\.\d{3})*|\d+)(?:,(\d+))?\s*(?:T\s?Euro|T\s?€|TEUR|Tsd\.?\s?Euro|Tausend Euro)\b"
+)
+_TEURO_EN = re.compile(
+    r"(?<![\d,.])(\d{1,3}(?:,\d{3})*|\d+)(?:\.(\d+))?\s*(?:T\s?Euro|T\s?€|TEUR|Tsd\.?\s?Euro|thousand euros?)\b"
+)
+_TEURO_EINHEIT = re.compile(r"^(?:T\s?Euro|T\s?€|TEUR|Tsd\.?\s?Euro|Tausend Euro)$", re.I)
+
+
+def _betrag_text(euro: float, sprache: str) -> str:
+    """Euro-Betrag lesbar: bis 1 Mio. voll, darueber Mio./Mrd. mit hoechstens 2 Nachkommastellen."""
+    de = sprache == "de"
+    if euro >= 1e9:
+        wert, einheit = euro / 1e9, ("Mrd. Euro" if de else "billion euros")
+    elif euro >= 1e6:
+        wert, einheit = euro / 1e6, ("Mio. Euro" if de else "million euros")
+    else:
+        ganz = _gruppieren(str(int(round(euro))), "." if de else ",")
+        return f"{ganz} Euro" if de else f"{ganz} euros"
+    z = f"{wert:.2f}".rstrip("0").rstrip(".")
+    if de:
+        z = z.replace(".", ",")
+    return f"{z} {einheit}"
+
+
+def teuro_umrechnen(s: str, sprache: str) -> str:
+    """'2.727,50 T Euro' -> '2,73 Mio. Euro', '150 T Euro' -> '150.000 Euro'."""
+    muster = _TEURO_DE if sprache == "de" else _TEURO_EN
+
+    def neu(m: re.Match) -> str:
+        ganz = re.sub(r"\D", "", m.group(1))
+        dez = m.group(2) or "0"
+        euro = (int(ganz) + int(dez) / 10 ** len(dez)) * 1000
+        return _betrag_text(euro, sprache)
+
+    return muster.sub(neu, s or "")
+
+
+def kernzahl_umrechnen(kz: dict) -> dict:
+    """Chip 'wert' + 'einheit' in T Euro -> lesbarer Betrag, Zitat bleibt."""
+    if not _TEURO_EINHEIT.match(kz.get("einheit") or ""):
+        return kz
+    betrag = teuro_umrechnen(f"{kz['wert']} T Euro", "de")
+    if betrag == f"{kz['wert']} T Euro":
+        return kz
+    wert, einheit = betrag.split(" ", 1)
+    return {**kz, "wert": wert, "einheit": einheit}
+
+
 def regierungstext(text: str) -> str:
     b = ka.bereich_fragesteller(text)
     if b:
@@ -314,6 +368,10 @@ def pruefen(d: dict, text: str) -> tuple[dict | None, str | None]:
     felder["zusammenfassung_en"] = zahlen_schreiben(felder["zusammenfassung_en"], "en")
     for kz in kern:
         kz["wert"] = zahlen_schreiben(kz["wert"], "de")
+    for k in ("zusammenfassung", "schlagzeile"):
+        felder[k] = teuro_umrechnen(felder[k], "de")
+    felder["zusammenfassung_en"] = teuro_umrechnen(felder["zusammenfassung_en"], "en")
+    felder["kernzahlen"] = [kernzahl_umrechnen(kz) for kz in kern]
     return felder, None
 
 
