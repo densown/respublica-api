@@ -1035,3 +1035,36 @@ CREATE TABLE `ep_stimmen` (
   KEY `idx_ep_stimmen_mitglied` (`mitglied_id`),
   KEY `idx_ep_stimmen_land` (`abstimmung_id`,`land`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 024: Strompreise (migrations/024_strom.sql)
+/*M!999999\- enable the sandbox mode */ 
+CREATE TABLE `strom_zonen` (
+  `code` varchar(12) NOT NULL,
+  `land` char(2) NOT NULL,
+  `name_de` varchar(80) NOT NULL,
+  `name_en` varchar(80) NOT NULL,
+  `quelle_code` varchar(20) NOT NULL,
+  `spalte` tinyint(4) NOT NULL,
+  `zeile` tinyint(4) NOT NULL,
+  `aktiv` tinyint(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `strom_preise` (
+  `zone` varchar(12) NOT NULL,
+  `zeit_utc` datetime NOT NULL,
+  `minuten` smallint(5) unsigned NOT NULL,
+  `liefertag` date NOT NULL,
+  `stunde` tinyint(3) unsigned NOT NULL,
+  `eur_mwh` decimal(9,2) NOT NULL,
+  `quelle_id` int(11) DEFAULT NULL,
+  `abgerufen_am` datetime NOT NULL,
+  PRIMARY KEY (`zone`,`zeit_utc`),
+  KEY `idx_strom_tag` (`liefertag`,`zone`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `schnappschuesse` (
+  `schluessel` varchar(80) NOT NULL,
+  `inhalt` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`inhalt`)),
+  `quelle_id` int(11) DEFAULT NULL,
+  `erzeugt_am` datetime NOT NULL,
+  PRIMARY KEY (`schluessel`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -87,6 +87,7 @@ app.use("/api", require("./routes/versammlungen"));
 app.use("/api", require("./routes/kleine_anfragen"));
 app.use("/api", require("./routes/quellen"));
 app.use("/api", require("./routes/ep"));
+app.use("/api", require("./routes/strom"));
 app.use("/api", require("./routes/seiten"));
 
 app.use(notFoundHandler);
