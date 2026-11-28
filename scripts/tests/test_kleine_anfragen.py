@@ -290,10 +290,11 @@ def test_pruefen_lehnt_erfundene_zeitraeume_ab():
 def test_abruf_params_aktualisiert_mit_zeitstempel():
     from datetime import date
     # f.aktualisiert.start verlangt einen Zeitstempel, sonst DIP 400 (Cron 24.11.2026)
+    # und immer nur die laufende Wahlperiode, sonst kommen alte Antworten mit (28.11.2026: 1989)
     assert fka.abruf_params(date(2026, 11, 21), None, True) == [
-        ("f.drucksachetyp", "Antwort"), ("f.aktualisiert.start", "2026-11-21T00:00:00")]
+        ("f.drucksachetyp", "Antwort"), ("f.wahlperiode", "21"), ("f.aktualisiert.start", "2026-11-21T00:00:00")]
     assert fka.abruf_params(date(2026, 11, 1), date(2026, 11, 20), False) == [
-        ("f.drucksachetyp", "Antwort"), ("f.datum.start", "2026-11-01"), ("f.datum.end", "2026-11-20")]
+        ("f.drucksachetyp", "Antwort"), ("f.wahlperiode", "21"), ("f.datum.start", "2026-11-01"), ("f.datum.end", "2026-11-20")]
 
 
 class _Cursor:

@@ -47,6 +47,9 @@ UA = "respublica-kleine-anfragen/1.0 (+https://respublica.media)"
 PAUSE_SEC = 0.5  # zwischen Abrufen, das DIP droht bei Missbrauch mit Sperre
 MAX_SEITEN = 400  # 20 Dokumente je Seite, reicht fuer eine ganze Wahlperiode
 VORLAUF_TAGE = 2
+# Nur die laufende Wahlperiode. Der Inkrementalimport nach f.aktualisiert holte sonst
+# alles, was das DIP zuletzt angefasst hat, auch Antworten von 1989 (Befund 28.11.2026).
+WAHLPERIODE = 21
 
 log = get_logger(LOCK_NAME)
 _running = True
@@ -82,12 +85,13 @@ def abruf_params(seit: date, bis: date | None, nach_aktualisierung: bool) -> lis
     """Filter fuer drucksache-text. f.datum nimmt ein Datum, f.aktualisiert will laut
     DIP-API einen Zeitstempel (YYYY-MM-DDTHH:mm:ss); mit blossem Datum antwortet das
     DIP mit 400, der erste Cron-Lauf am 24.11.2026 importierte deshalb nichts."""
+    basis = [("f.drucksachetyp", "Antwort"), ("f.wahlperiode", str(WAHLPERIODE))]
     if nach_aktualisierung:
-        params = [("f.drucksachetyp", "Antwort"), ("f.aktualisiert.start", f"{seit.isoformat()}T00:00:00")]
+        params = basis + [("f.aktualisiert.start", f"{seit.isoformat()}T00:00:00")]
         if bis:
             params.append(("f.aktualisiert.end", f"{bis.isoformat()}T23:59:59"))
         return params
-    params = [("f.drucksachetyp", "Antwort"), ("f.datum.start", seit.isoformat())]
+    params = basis + [("f.datum.start", seit.isoformat())]
     if bis:
         params.append(("f.datum.end", bis.isoformat()))
     return params
@@ -243,7 +247,7 @@ def main() -> int:
             stapel.clear()
 
         for doc in antworten(seit, args.bis if args.seit else None, nach_akt, apikey):
-            if not kleine_anfrage_bezug(doc):
+            if not kleine_anfrage_bezug(doc) or int(doc.get("wahlperiode") or 0) != WAHLPERIODE:
                 uebersprungen += 1
                 continue
             stapel.append(doc)

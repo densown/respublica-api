@@ -48,6 +48,9 @@ const FRAKTIONEN = Object.freeze({
   sonstige: "sonstige",
 });
 const BUNDESTAG_PERIOD = 161;
+// Kennzahlen und Wochenansicht nur fuer die laufende Wahlperiode: ein Import ohne
+// Wahlperioden-Filter brachte am 28.11.2026 Antworten von 1989 in die Tabelle
+const WAHLPERIODE = 21;
 
 /**
  * Name fuer den Vergleich: Kleinbuchstaben, ohne Akzente, ohne Titel
@@ -356,22 +359,26 @@ router.get(
     const [[stand]] = await pool.query(
       `SELECT COUNT(*) AS gesamt, SUM(zusammenfassung IS NOT NULL) AS ausgewertet,
               DATE_FORMAT(MIN(datum), '%Y-%m-%d') AS von, DATE_FORMAT(MAX(datum), '%Y-%m-%d') AS bis
-         FROM kleine_anfragen`,
+         FROM kleine_anfragen WHERE wahlperiode = ?`,
+      [WAHLPERIODE],
     );
     const [fraktionen] = await pool.query(
       `SELECT fraktion, COUNT(*) AS anzahl FROM kleine_anfragen
-        WHERE fraktion IS NOT NULL GROUP BY fraktion ORDER BY anzahl DESC`,
+        WHERE fraktion IS NOT NULL AND wahlperiode = ? GROUP BY fraktion ORDER BY anzahl DESC`,
+      [WAHLPERIODE],
     );
     const [ressorts] = await pool.query(
       `SELECT ressort, COUNT(*) AS anzahl FROM kleine_anfragen
-        WHERE ressort IS NOT NULL GROUP BY ressort ORDER BY anzahl DESC`,
+        WHERE ressort IS NOT NULL AND wahlperiode = ? GROUP BY ressort ORDER BY anzahl DESC`,
+      [WAHLPERIODE],
     );
     const [sachgebiete] = await pool.query(
       `SELECT j.sachgebiet, COUNT(*) AS anzahl
          FROM kleine_anfragen k,
               JSON_TABLE(k.sachgebiete, '$[*]' COLUMNS (sachgebiet VARCHAR(120) PATH '$')) AS j
-        WHERE k.sachgebiete IS NOT NULL AND JSON_VALID(k.sachgebiete)
+        WHERE k.sachgebiete IS NOT NULL AND JSON_VALID(k.sachgebiete) AND k.wahlperiode = ?
         GROUP BY j.sachgebiet ORDER BY anzahl DESC`,
+      [WAHLPERIODE],
     );
     res.json({
       gesamt: Number(stand.gesamt) || 0,
