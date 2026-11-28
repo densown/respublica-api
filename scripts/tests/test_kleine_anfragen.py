@@ -319,3 +319,42 @@ def test_offene_nur_ab_stichtag_und_neueste_zuerst():
     ska.offene(cur, 1, "21/9304", False, date(2020, 1, 1))
     # --dokument ignoriert die Untergrenze
     assert "datum >= %s" not in cur.sql and cur.params == ["21/9304", 1]
+
+
+def test_teuro_wird_lesbar():
+    assert ska.teuro_umrechnen("Von 2.727,50 T Euro waren 150 T Euro verausgabt, 1.190 TEUR gebunden.", "de") == (
+        "Von 2,73 Mio. Euro waren 150.000 Euro verausgabt, 1,19 Mio. Euro gebunden.")
+    assert ska.teuro_umrechnen("Insgesamt 1.500.000 T Euro und 2 Tsd. Euro", "de") == "Insgesamt 1,5 Mrd. Euro und 2.000 Euro"
+    assert ska.teuro_umrechnen("Of 2,727.50 T Euro, 150 T Euro were spent.", "en") == (
+        "Of 2.73 million euros, 150,000 euros were spent.")
+    # Kein Treffer: Temperatur, Tabellenkopf ohne Zahl, Datum davor
+    assert ska.teuro_umrechnen("bei 20 T und Angaben in T Euro", "de") == "bei 20 T und Angaben in T Euro"
+    kz = {"wert": "2.727,50", "einheit": "T Euro", "bedeutung": "x", "zitat": "2.727,50 T Euro"}
+    assert ska.kernzahl_umrechnen(kz) == {**kz, "wert": "2,73", "einheit": "Mio. Euro"}
+    assert ska.kernzahl_umrechnen({"wert": "150", "einheit": "Stellen"})["einheit"] == "Stellen"
+
+
+def test_pruefen_rechnet_teuro_nach_der_pruefung_um():
+    text = TEXT + "\nFuer 2026 stehen 2.727,50 T Euro zur Verfuegung, davon 150 T Euro verausgabt.\n"
+    d = {**GUT, "zusammenfassung": "Von 2.727,50 T Euro waren 150 T Euro verausgabt.",
+         "zusammenfassung_en": "Of 2,727.50 T Euro, 150 T Euro were spent.",
+         "kernzahlen": [{"wert": "150", "einheit": "T Euro", "bedeutung": "verausgabt", "zitat": "150 T Euro verausgabt"}]}
+    felder, grund = ska.pruefen(d, text)
+    assert grund is None, grund
+    assert felder["zusammenfassung"] == "Von 2,73 Mio. Euro waren 150.000 Euro verausgabt."
+    assert felder["zusammenfassung_en"] == "Of 2.73 million euros, 150,000 euros were spent."
+    assert felder["kernzahlen"][0]["wert"] == "150.000" and felder["kernzahlen"][0]["einheit"] == "Euro"
+    assert felder["kernzahlen"][0]["zitat"] == "150 T Euro verausgabt"
+
+
+def test_nachziehen_teuro_zeile():
+    import nachziehen_teuro_kleine_anfragen as nt
+    z = {"zusammenfassung": "Es stehen 2.727,50 T Euro bereit.", "zusammenfassung_en": "2,727.50 T Euro are available.",
+         "schlagzeile": "150 T Euro verausgabt",
+         "kernzahlen": json.dumps([{"wert": "150", "einheit": "T Euro", "bedeutung": "x", "zitat": "150 T Euro"}])}
+    neu = nt.umrechnen(z)
+    assert neu["zusammenfassung"] == "Es stehen 2,73 Mio. Euro bereit."
+    assert neu["zusammenfassung_en"] == "2.73 million euros are available."
+    assert neu["schlagzeile"] == "150.000 Euro verausgabt"
+    assert json.loads(neu["kernzahlen"])[0] == {"wert": "150.000", "einheit": "Euro", "bedeutung": "x", "zitat": "150 T Euro"}
+    assert nt.umrechnen({"zusammenfassung": "Keine Beträge.", "zusammenfassung_en": "", "schlagzeile": "", "kernzahlen": "[]"}) is None
