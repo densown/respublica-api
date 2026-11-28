@@ -203,6 +203,39 @@ class Lauf:
             self.roh_ablegen(name, daten)
         return daten
 
+    def laden(self, url: str, ziel: Path, *, kopf: dict[str, str] | None = None,
+              timeout: int = 300, versuche: int = VERSUCHE) -> Path:
+        """Wie abrufen(), schreibt aber stueckweise in eine Datei. Fuer grosse Downloads,
+        die nicht in den Arbeitsspeicher sollen. Die Datei entsteht erst vollstaendig
+        (erst .teil, dann umbenannt), ein abgebrochener Download bleibt nicht liegen."""
+        headers = {"User-Agent": USER_AGENT, **(kopf or {})}
+        ziel.parent.mkdir(parents=True, exist_ok=True)
+        teil = ziel.with_name(ziel.name + ".teil")
+        for versuch in range(versuche):
+            req = urllib.request.Request(url, headers=headers)
+            try:
+                with self._oeffnen(req, timeout=timeout) as resp, open(teil, "wb") as f:
+                    while True:
+                        stueck = resp.read(1 << 20)
+                        if not stueck:
+                            break
+                        f.write(stueck)
+                teil.replace(ziel)
+                return ziel
+            except urllib.error.HTTPError as e:
+                teil.unlink(missing_ok=True)
+                if versuch == versuche - 1 or not wiederholen_bei(e.code):
+                    raise
+                warten = wartezeit(e.headers.get("Retry-After") if e.headers else None, versuch)
+            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                teil.unlink(missing_ok=True)
+                if versuch == versuche - 1:
+                    raise
+                warten = min(3 * 2**versuch, MAX_WARTEN)
+            self._info(f"{self.slug}: Download unterbrochen, neuer Versuch in {warten:.0f} s")
+            self._schlafen(warten)
+        raise AssertionError("nicht erreichbar")
+
     def roh_ablegen(self, name: str, daten: bytes) -> Path:
         """Speichert eine Rohantwort unter data/raw/<slug>/<Zeit>_<name> und raeumt alte weg."""
         self.roh_dir.mkdir(parents=True, exist_ok=True)

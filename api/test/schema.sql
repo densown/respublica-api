@@ -975,3 +975,63 @@ CREATE TABLE IF NOT EXISTS kleine_anfragen (
   FULLTEXT KEY ft_ka_kurz (titel, zusammenfassung, deskriptoren),
   FULLTEXT KEY ft_ka_volltext (volltext)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 023: EU-Parlament (migrations/023_eu_parlament.sql)
+/*M!999999\- enable the sandbox mode */ 
+CREATE TABLE `ep_fraktionen` (
+  `code` varchar(20) NOT NULL,
+  `name` varchar(200) NOT NULL,
+  `kurz` varchar(40) NOT NULL,
+  PRIMARY KEY (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `ep_abgeordnete` (
+  `id` int(10) unsigned NOT NULL,
+  `vorname` varchar(100) NOT NULL,
+  `nachname` varchar(100) NOT NULL,
+  `land` char(3) NOT NULL,
+  `geburtsdatum` date DEFAULT NULL,
+  `fraktion` varchar(20) DEFAULT NULL,
+  `partei` varchar(80) DEFAULT NULL,
+  `im_amt` tinyint(1) NOT NULL DEFAULT 0,
+  `abgerufen_am` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_ep_abg_land` (`land`,`im_amt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `ep_abstimmungen` (
+  `id` int(10) unsigned NOT NULL,
+  `zeit` datetime NOT NULL,
+  `titel_en` varchar(700) NOT NULL,
+  `titel_de` varchar(700) DEFAULT NULL,
+  `referenz` varchar(60) DEFAULT NULL,
+  `beschreibung` varchar(255) DEFAULT NULL,
+  `art` enum('text','einigung','ablehnungsantrag','verhandlungsmandat','dringlichkeit') NOT NULL DEFAULT 'text',
+  `verfahren` varchar(30) DEFAULT NULL,
+  `verfahren_typ` varchar(8) DEFAULT NULL,
+  `lesung` tinyint(3) unsigned DEFAULT NULL,
+  `ja` smallint(5) unsigned NOT NULL,
+  `nein` smallint(5) unsigned NOT NULL,
+  `enthaltung` smallint(5) unsigned NOT NULL,
+  `nicht_abgestimmt` smallint(5) unsigned NOT NULL,
+  `ergebnis` enum('angenommen','abgelehnt','hinfaellig') DEFAULT NULL,
+  `text_referenz` varchar(40) DEFAULT NULL,
+  `de_ja` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `de_nein` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `de_enthaltung` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `de_nicht` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `quelle_id` int(11) DEFAULT NULL,
+  `abgerufen_am` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_ep_abst_zeit` (`zeit`),
+  KEY `idx_ep_abst_verfahren` (`verfahren`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `ep_stimmen` (
+  `abstimmung_id` int(10) unsigned NOT NULL,
+  `mitglied_id` int(10) unsigned NOT NULL,
+  `position` enum('ja','nein','enthaltung','nicht') NOT NULL,
+  `land` char(3) NOT NULL,
+  `fraktion` varchar(20) DEFAULT NULL,
+  `partei` varchar(80) DEFAULT NULL,
+  PRIMARY KEY (`abstimmung_id`,`mitglied_id`),
+  KEY `idx_ep_stimmen_mitglied` (`mitglied_id`),
+  KEY `idx_ep_stimmen_land` (`abstimmung_id`,`land`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -163,3 +163,19 @@ def test_teilweise_wird_als_partial_protokolliert():
     assert conn.anweisungen("UPDATE data_update_log")[0][1][0] == "partial"
     # ein Teil-Erfolg zaehlt als Erfolg fuer den Stand
     assert "last_success" in conn.anweisungen("UPDATE data_sources")[0][0]
+
+
+def test_laden_schreibt_datei_und_laesst_keinen_rest(tmp_path):
+    antworten = [_http_fehler(502), _Antwort(b"x" * 3_000_000)]
+
+    def oeffnen(req, timeout):
+        a = antworten.pop(0)
+        if isinstance(a, Exception):
+            raise a
+        return a
+
+    ziel = tmp_path / "gross" / "datei.csv.gz"
+    with Lauf("test-quelle", roh_dir=tmp_path, oeffnen=oeffnen, schlafen=lambda s: None) as lauf:
+        lauf.laden("https://x/gross", ziel)
+    assert ziel.stat().st_size == 3_000_000
+    assert [p.name for p in ziel.parent.iterdir()] == ["datei.csv.gz"]

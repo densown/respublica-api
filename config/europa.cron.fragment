@@ -1,0 +1,11 @@
+# Europa-Daten (Migrationen 022 und 023). Erst nach Einspielen der Migrationen aktivieren.
+# 05:10 UTC  EU-Parlament: Export von HowTheyVote.eu pruefen und laden. Endet sofort, wenn der Export
+#            seit dem letzten Lauf gleich ist. Sonst rund 100 MB Download und etwa eine Minute Arbeit.
+# 19:10 UTC  zweiter Lauf fuer Sitzungstage (Abstimmungen mittags, Export in der Nacht und am Abend).
+# 05:25 UTC  Deutsche Titel mit der Claude-CLI im Max-Plan, je Lauf hoechstens 4 Aufrufe (160 Titel).
+#            Nicht zur selben Zeit wie Kleine Anfragen (05:50), Kurztexte (06:40), Brain-Briefing (07:00).
+# PATH, damit cron die CLI findet (Installation unter /root/.local/bin oder /usr/local/bin).
+# Installation: Kopie nach /etc/cron.d/europa und systemctl restart cron
+PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+10 5,19 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_ep.py --schreiben >> /root/apps/gesetze/logs/cron.log 2>&1
+25 5 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/uebersetze_ep_titel.py >> /root/apps/gesetze/logs/cron.log 2>&1
