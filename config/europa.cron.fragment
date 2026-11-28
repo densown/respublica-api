@@ -1,0 +1,19 @@
+# Europa-Daten (Migrationen 022 bis 024). Erst nach Einspielen der Migrationen aktivieren.
+# 05:10 UTC  EU-Parlament: Export von HowTheyVote.eu pruefen und laden. Endet sofort, wenn der Export
+#            seit dem letzten Lauf gleich ist. Sonst rund 100 MB Download und etwa eine Minute Arbeit.
+# 19:10 UTC  zweiter Lauf fuer Sitzungstage (Abstimmungen mittags, Export in der Nacht und am Abend).
+# 05:25 UTC  Deutsche Titel mit der Claude-CLI im Max-Plan, je Lauf hoechstens 4 Aufrufe (160 Titel).
+#            Nicht zur selben Zeit wie Kleine Anfragen (05:50), Kurztexte (06:40), Brain-Briefing (07:00).
+# Strompreise von energy-charts.info (Zeiten in UTC, Preise fuer morgen stehen ab etwa 12:00 UTC fest):
+# 12:35, 13:35, 15:05 UTC  gestern bis morgen. --morgen-noetig: der Lauf gilt erst als Erfolg, wenn die
+#            Preise fuer morgen da sind. So zeigt /api/stand die Quelle nicht faelschlich als frisch.
+# 02:40 UTC  die letzten 7 Tage neu (nachtraegliche Korrekturen der Quelle). 15 Zonen mit 3 s Pause.
+# Vor dem Aktivieren einmal von Hand ohne --schreiben laufen lassen (Trockenlauf) und das Log ansehen.
+# PATH, damit cron die CLI findet (Installation unter /root/.local/bin oder /usr/local/bin).
+# Installation: Kopie nach /etc/cron.d/europa und systemctl restart cron
+PATH=/root/.local/bin:/usr/local/bin:/usr/bin:/bin
+10 5,19 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_ep.py --schreiben >> /root/apps/gesetze/logs/cron.log 2>&1
+25 5 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/uebersetze_ep_titel.py >> /root/apps/gesetze/logs/cron.log 2>&1
+35 12,13 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_strom.py --schreiben --morgen-noetig >> /root/apps/gesetze/logs/cron.log 2>&1
+5 15 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_strom.py --schreiben --morgen-noetig >> /root/apps/gesetze/logs/cron.log 2>&1
+40 2 * * * root cd /root/apps/gesetze && .venv/bin/python3 scripts/fetch_strom.py --schreiben --tage 7 >> /root/apps/gesetze/logs/cron.log 2>&1

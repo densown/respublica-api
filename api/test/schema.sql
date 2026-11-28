@@ -182,11 +182,17 @@ CREATE TABLE `data_sources` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `slug` varchar(50) NOT NULL,
   `name` varchar(200) NOT NULL,
+  `name_de` varchar(200) DEFAULT NULL,
   `provider` varchar(100) NOT NULL,
   `url` varchar(500) DEFAULT NULL,
   `api_endpoint` varchar(500) DEFAULT NULL,
   `license` varchar(100) DEFAULT NULL,
-  `update_freq` enum('daily','weekly','monthly','quarterly','yearly','manual') DEFAULT 'weekly',
+  `license_url` varchar(500) DEFAULT NULL,
+  `area` varchar(30) DEFAULT NULL,
+  `note_de` varchar(500) DEFAULT NULL,
+  `note_en` varchar(500) DEFAULT NULL,
+  `update_freq` enum('daily','weekly','monthly','quarterly','yearly','manual','hourly') DEFAULT 'weekly',
+  `stale_after_hours` int(10) unsigned DEFAULT NULL,
   `last_fetched` timestamp NULL DEFAULT NULL,
   `last_success` timestamp NULL DEFAULT NULL,
   `last_error` text DEFAULT NULL,
@@ -968,4 +974,97 @@ CREATE TABLE IF NOT EXISTS kleine_anfragen (
   KEY idx_ka_story (story_wert, datum),
   FULLTEXT KEY ft_ka_kurz (titel, zusammenfassung, deskriptoren),
   FULLTEXT KEY ft_ka_volltext (volltext)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 023: EU-Parlament (migrations/023_eu_parlament.sql)
+/*M!999999\- enable the sandbox mode */ 
+CREATE TABLE `ep_fraktionen` (
+  `code` varchar(20) NOT NULL,
+  `name` varchar(200) NOT NULL,
+  `kurz` varchar(40) NOT NULL,
+  PRIMARY KEY (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `ep_abgeordnete` (
+  `id` int(10) unsigned NOT NULL,
+  `vorname` varchar(100) NOT NULL,
+  `nachname` varchar(100) NOT NULL,
+  `land` char(3) NOT NULL,
+  `geburtsdatum` date DEFAULT NULL,
+  `fraktion` varchar(20) DEFAULT NULL,
+  `partei` varchar(80) DEFAULT NULL,
+  `im_amt` tinyint(1) NOT NULL DEFAULT 0,
+  `abgerufen_am` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_ep_abg_land` (`land`,`im_amt`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `ep_abstimmungen` (
+  `id` int(10) unsigned NOT NULL,
+  `zeit` datetime NOT NULL,
+  `titel_en` varchar(700) NOT NULL,
+  `titel_de` varchar(700) DEFAULT NULL,
+  `referenz` varchar(60) DEFAULT NULL,
+  `beschreibung` varchar(255) DEFAULT NULL,
+  `art` enum('text','einigung','ablehnungsantrag','verhandlungsmandat','dringlichkeit') NOT NULL DEFAULT 'text',
+  `verfahren` varchar(30) DEFAULT NULL,
+  `verfahren_typ` varchar(8) DEFAULT NULL,
+  `lesung` tinyint(3) unsigned DEFAULT NULL,
+  `ja` smallint(5) unsigned NOT NULL,
+  `nein` smallint(5) unsigned NOT NULL,
+  `enthaltung` smallint(5) unsigned NOT NULL,
+  `nicht_abgestimmt` smallint(5) unsigned NOT NULL,
+  `ergebnis` enum('angenommen','abgelehnt','hinfaellig') DEFAULT NULL,
+  `text_referenz` varchar(40) DEFAULT NULL,
+  `de_ja` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `de_nein` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `de_enthaltung` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `de_nicht` smallint(5) unsigned NOT NULL DEFAULT 0,
+  `quelle_id` int(11) DEFAULT NULL,
+  `abgerufen_am` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_ep_abst_zeit` (`zeit`),
+  KEY `idx_ep_abst_verfahren` (`verfahren`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `ep_stimmen` (
+  `abstimmung_id` int(10) unsigned NOT NULL,
+  `mitglied_id` int(10) unsigned NOT NULL,
+  `position` enum('ja','nein','enthaltung','nicht') NOT NULL,
+  `land` char(3) NOT NULL,
+  `fraktion` varchar(20) DEFAULT NULL,
+  `partei` varchar(80) DEFAULT NULL,
+  PRIMARY KEY (`abstimmung_id`,`mitglied_id`),
+  KEY `idx_ep_stimmen_mitglied` (`mitglied_id`),
+  KEY `idx_ep_stimmen_land` (`abstimmung_id`,`land`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 024: Strompreise (migrations/024_strom.sql)
+/*M!999999\- enable the sandbox mode */ 
+CREATE TABLE `strom_zonen` (
+  `code` varchar(12) NOT NULL,
+  `land` char(2) NOT NULL,
+  `name_de` varchar(80) NOT NULL,
+  `name_en` varchar(80) NOT NULL,
+  `quelle_code` varchar(20) NOT NULL,
+  `spalte` tinyint(4) NOT NULL,
+  `zeile` tinyint(4) NOT NULL,
+  `aktiv` tinyint(1) NOT NULL DEFAULT 1,
+  PRIMARY KEY (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `strom_preise` (
+  `zone` varchar(12) NOT NULL,
+  `zeit_utc` datetime NOT NULL,
+  `minuten` smallint(5) unsigned NOT NULL,
+  `liefertag` date NOT NULL,
+  `stunde` tinyint(3) unsigned NOT NULL,
+  `eur_mwh` decimal(9,2) NOT NULL,
+  `quelle_id` int(11) DEFAULT NULL,
+  `abgerufen_am` datetime NOT NULL,
+  PRIMARY KEY (`zone`,`zeit_utc`),
+  KEY `idx_strom_tag` (`liefertag`,`zone`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE `schnappschuesse` (
+  `schluessel` varchar(80) NOT NULL,
+  `inhalt` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL CHECK (json_valid(`inhalt`)),
+  `quelle_id` int(11) DEFAULT NULL,
+  `erzeugt_am` datetime NOT NULL,
+  PRIMARY KEY (`schluessel`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

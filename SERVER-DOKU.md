@@ -19,6 +19,10 @@ Express-API (Port aus `.env`, auf diesem Server: **3002**), Cron-Skripte unter `
 | `api/routes/lobby.js` | `/api/lobbyregister*`, `/api/lobby-projects*` |
 | `api/routes/wahlen.js` | `/api/wahlen*` |
 | `api/routes/world.js` | `/api/world*` |
+| `api/routes/quellen.js` | `/api/quellen*`, `/api/stand` |
+| `api/routes/ep.js` | `/api/ep*` (EU-Parlament) |
+| `api/routes/strom.js` | `/api/strom*` (Strompreise) |
+| `api/lib/quellen.js` | Frische einer Quelle (aktuell, veraltet, unbekannt) |
 
 Alle Router werden per `app.use("/api", router)` gemountet; Routen definieren Pfade ohne `/api`-Prefix.
 
@@ -149,11 +153,25 @@ Fehlerbehandlung zentral über `api/lib/errors.js` (Refactoring Phase 2, C1): je
 | GET | `/api/wahlen/national-average` | Bundesdurchschnitt |
 | GET | `/api/wahlen/stats` | Statistik |
 | GET | `/api/wahlen/region/:ags` | Region nach AGS |
+| GET | `/api/quellen` | Quellenregister aus `data_sources`: Name, Herausgeber, Link, Lizenz, Takt, letzter Abruf, Zustand (`aktuell`, `veraltet`, `unbekannt`, `ohne_takt`). Optional `bereich=europa`, `lang=de` oder `en` (Default `de`). Fünf Minuten gepuffert |
+| GET | `/api/quellen/:slug` | Eine Quelle |
+| GET | `/api/stand` | Kurzfassung für Stand-Stempel und Brain: Zustand je Quelle, Liste `veraltet`. Grenze ist `stale_after_hours`, sonst Vorgabe nach `update_freq` (`api/lib/quellen.js`) |
+| GET | `/api/ep/stand` | EU-Parlament: Zahl der Abstimmungen, letzte Abstimmung, Abgeordnete, Stand der Quelle |
+| GET | `/api/ep/abstimmungen` | Hauptabstimmungen, neueste zuerst. `limit` (höchstens 50), `offset`, `q`, `ergebnis`, `art`, `knapp=1`, `lang`. Mit Stimmen gesamt und der deutschen Abgeordneten. Jede Antwort unter `/api/ep/*` trägt `quelle` (ODbL-Namensnennung) und `stand` |
+| GET | `/api/ep/abstimmungen/:id` | Eine Abstimmung: Stimmen je Fraktion und je Land, Einzelstimmen der deutschen Abgeordneten, weitere Abstimmungen zum selben Verfahren |
+| GET | `/api/ep/abgeordnete` | Abgeordnete im Amt eines Landes (`land`, Default `DEU`) mit Bilanz und Teilnahme |
+| GET | `/api/ep/abgeordnete/:id` | Profil: Bilanz, Teilnahme, Anteil der Stimmen mit der eigenen Fraktion, letzte Abstimmungen (`limit`, `offset`) |
+| GET | `/api/ep/land/:code` | Ein Land im Parlament: Sitze, Fraktionen, jüngste Hauptabstimmungen mit den Stimmen des Landes (`limit`, 1 bis 20) |
+| GET | `/api/strom/tag` | Stundenpreise aller Zonen für einen Liefertag (`datum`, Default jüngster Tag), mit Tagesmittel, Min, Max, Vortag und Platz auf der Kachelkarte. `einheit` ist immer `EUR/MWh` (Börsenpreis ohne Steuern und Netzentgelte), Marktzeit Europe/Berlin |
+| GET | `/api/strom/zone/:code` | Tageswerte einer Zone (`tage`, 7 bis 400, Default 90) |
+| GET | `/api/strom/verlauf` | Tagesmittel von bis zu vier Zonen auf einer Achse (`zonen`, `tage`), für den Ländervergleich |
+| GET | `/api/strom/kennzahlen` | Vorberechnet aus `schnappschuesse`: negative Stunden je Zone im laufenden Jahr, Anteil der Stunden mit gleichem Preis in DE-LU, FR, NL, BE, AT, Tagesberichte der letzten drei Liefertage |
 | GET | `/api/world/categories` | Indikator-Kategorien (`data_indicators` + `world_indicator_meta` für Anzeige-Texte; optional `lang=de` oder `lang=en`, Default `en`) |
 | GET | `/api/world/indicators` | Indikatoren (wie oben) |
 | GET | `/api/world/map` | Weltkarte (`data_values` + `data_indicators`; Länder-/Aggregat-Felder wie zuvor aus `world_indicators` pro Zeile) |
 | GET | `/api/world/country/:code` | Land (Werte aus `data_values`; Kopfzeile wie zuvor erste Zeile aus `world_indicators`) |
 | GET | `/api/world/timeseries` | Zeitreihe (`data_values`) |
+| GET | `/api/world/steckbrief/:code` | Acht Kennzahlen eines Landes mit jüngstem Wert, Reihe seit 2000 und Quelle, für die Länderseiten |
 | GET | `/api/world/compare` | Vergleich (`data_values` + `world_indicators` für `country_name` pro Jahr) |
 | GET | `/api/world/ranking` | Ranking (`data_values` + `world_indicators` für Namen) |
 | GET | `/api/world/scatter` | Scatter (wie Ranking/Map) |
@@ -183,6 +201,10 @@ Alle Python-Jobs der Daily Pipeline (06:00–07:10) und `weekly_resummarize.sh` 
 | 04:00 | `gii_sync.py` | Metadaten von gesetze-im-internet.de (`gii-toc.xml`, `xml.zip`) nach `gesetze` (Vorschlag: `config/gesetze-gii-sync.cron.fragment` nach `/etc/cron.d/` kopieren) |
 | 06:00 | `bundestag_gesetze_diffs.py` | Repo `kmein/gesetze`, Diffs letzte 24 h → JSON unter `data/diffs/` |
 | 06:05 | `import_diffs_to_db.py` | Import Tages-JSON → `gesetze` / `aenderungen` |
+| 05:10, 19:10 | `fetch_ep.py --schreiben` | Namentliche Hauptabstimmungen im EU-Parlament (10. Wahlperiode) aus dem CSV-Export von HowTheyVote.eu (ODbL) → `ep_abstimmungen`, `ep_stimmen`, `ep_abgeordnete`, `ep_fraktionen`. Endet sofort, wenn der Export unverändert ist. Schreibt nur bei bestandenen Prüfungen, protokolliert über `lib/quelle.py` in `data_update_log` (Fragment: `config/europa.cron.fragment`, erst nach Migrationen 022 und 023) |
+| 05:25 | `uebersetze_ep_titel.py` | Deutsche Titel für `ep_abstimmungen` (Claude-CLI im Max-Plan, höchstens 4 Aufrufe mit je 40 Titeln; Prüfung auf gleiche Zahlen, Länge, Gedankenstrich; Fragment wie oben) |
+| 12:35, 13:35, 15:05 | `fetch_strom.py --schreiben --morgen-noetig` | Day-Ahead-Strompreise von 15 Gebotszonen (energy-charts.info, CC BY 4.0) → `strom_preise`, Kennzahlen → `schnappschuesse`. Gilt erst als Erfolg, wenn die Preise für morgen da sind (Fragment: `config/europa.cron.fragment`, erst nach Migration 024 und einem Trockenlauf) |
+| 02:40 | `fetch_strom.py --schreiben --tage 7` | Strompreise der letzten 7 Tage neu laden (Korrekturen der Quelle; Fragment wie oben) |
 | 05:20 | `import_wahl_amtlich.py --auto --schreiben` | Amtliche Kreisergebnisse von Bundestags- und Europawahl → `wahlen`. Tut nur in den 90 Tagen nach einem Wahltermin aus `wahltermine` etwas; schreibt nur bei bestandenen Prüfungen, sonst `FEHLER` in `logs/wahl-amtlich.log` (Fragment: `config/wahl-amtlich.cron.fragment`) |
 | 05:40 | `fetch_kleine_anfragen.py` | Antworten auf Kleine Anfragen aus dem DIP → `kleine_anfragen` (inkrementell nach `f.aktualisiert`, Volltext kommt etwa 5 Tage nach der Drucksache; Fragment: `config/kleine-anfragen.cron.fragment`, erst nach Migration 021) |
 | 01:50, 05:50, 09:50, 13:50, 17:50, 21:50 | `summarize_kleine_anfragen.py` | Zusammenfassung DE/EN, Schlagzeile, geprüfte Kernzahlen, story_wert je Antwort, neueste zuerst, nur Antworten ab 1.9.2026 (`AB_DATUM`, `--ab`); Claude-CLI im Max-Plan, höchstens 4 Aufrufe je Lauf. Sechs Läufe bis der Rückstand seit September aufgeholt ist, danach drei (5,13,19). Fragment wie oben |
@@ -224,6 +246,7 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `lib/kleine_anfragen.py` | Textauswertung für den Tracker Kleine Anfragen: Fraktionskürzel, Vorbemerkung der Fragesteller erkennen, `zahl_belegt()` |
 | `lib/log.py` | `get_logger(name)` (Datei `logs/{name}.log` + stdout), `acquire_lock(name)`/`release_lock(name)` (PID-File), `laeuft(name)` (hält ein anderer Prozess das Lock?), `install_signal_handlers(callback)` |
 | `lib/aw.py` | Abrufe bei abgeordnetenwatch: `json_abrufen(url, user_agent)` mit bis zu 5 Versuchen bei 429 und 5xx (Retry-After der Quelle, sonst 3, 6, 12, 24 s); `wartezeit()` und `wiederholen_bei()` nutzt auch `fetch_abgeordnete.py` |
+| `lib/quelle.py` | Gemeinsamer Ablauf für jeden Abruf einer fremden Quelle: `with Lauf(slug, conn, schreiben=...)` protokolliert in `data_update_log`, setzt `last_fetched`, `last_success`, `last_error` in `data_sources`, `abrufen()` wiederholt bei 429 und 5xx und legt die Rohantwort 14 Tage unter `data/raw/<slug>/` ab, `pruefen()` bricht ab, bevor geschrieben wird. Ohne `schreiben` Trockenlauf. Neue Quellen nutzen das statt eigener Protokoll-Logik |
 | `lib/groq.py` | `chat_completion(messages, model, max_tokens, temperature)` mit voller Retry-Logik (5 Versuche, 429-Backoff, Anti-Abuse-Erkennung) |
 
 | Datei | Zweck |
@@ -254,6 +277,9 @@ Geteilte Infrastruktur für alle Pipeline-Skripte (Refactoring Phase 1, B1). Nut
 | `fix_geojson_winding.py` | GeoJSON-Winding für Karten (RFC 7946) |
 | `import_diffs_to_db.py` | `data/diffs/YYYY-MM-DD.json` → MariaDB |
 | `import_wahlen.py` | GERDA/Wahldaten-CSV → `wahlen` |
+| `fetch_ep.py` | EU-Parlament von HowTheyVote.eu. Ohne `--schreiben` Trockenlauf (abrufen, prüfen, zählen), `--alles` auch bei unverändertem Export, `--ordner PFAD` liest einen entpackten Export. Leser in `scripts/lib/ep.py` |
+| `uebersetze_ep_titel.py` | Deutsche Titel der EU-Abstimmungen, `--probelauf` speichert nichts |
+| `fetch_strom.py` | Strompreise von energy-charts.info. Ohne `--schreiben` Trockenlauf, `--tage N` rückwirkend, `--von/--bis` Altbestand in Monatsstücken, `--morgen-noetig` für die Läufe am Mittag. 3 s Pause zwischen Zonen, wiederholt bei 429. Leser und Rechenregeln in `scripts/lib/strom.py` |
 | `import_wahl_amtlich.py` | Amtliche Kreisergebnisse von Bundestags- und Europawahl (Dateien der Bundeswahlleiterin) und von Landtagswahlen (`state JJJJ --land NN`, je Wahl ein Leser in `LAENDER`) → `wahlen`. Ohne `--schreiben` nur Prüfung und Vergleich; schreibt nur bei bestandenen Prüfungen (Zahl der Kreise, Summen gegen die amtliche Gesamtzeile). `--auto` für Cron (Fragment: `config/wahl-amtlich.cron.fragment`, eingebaut seit 24.11.2026). Leser in `scripts/lib/wahl_amtlich.py` |
 | `import_world_indicators.py` | World-Bank-artige Indikatoren → `world_indicators` |
 | `import_baci.py` | CEPII BACI HS17 (2017-2024) → `trade_flows_v2` inkl. `TOTAL`, Sections I-XXI und `OTHER` mit Audit-Context in `data_update_log` |
